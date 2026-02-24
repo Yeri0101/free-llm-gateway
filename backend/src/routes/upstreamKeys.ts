@@ -60,6 +60,20 @@ upstreamKeys.get('/:id/models', async (c) => {
         if (keyData.provider === 'openai') url = 'https://api.openai.com/v1/models';
         else if (keyData.provider === 'groq') url = 'https://api.groq.com/openai/v1/models';
         else if (keyData.provider === 'openrouter') url = 'https://openrouter.ai/api/v1/models';
+        else if (keyData.provider === 'google') {
+            const googleRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyData.api_key}`);
+            if (!googleRes.ok) {
+                const err = await googleRes.json().catch(() => ({}));
+                throw new Error(`Google API returned ${googleRes.status}: ${err.error?.message || 'Unknown error'}`);
+            }
+            const googleData = await googleRes.json();
+            console.log("GOOGLE RESPONSE DATA:", JSON.stringify(googleData, null, 2).substring(0, 300));
+            const mappedModels = (googleData.models || [])
+                .map((m: any) => ({
+                    id: m.name.replace('models/', '')
+                }));
+            return c.json({ models: mappedModels });
+        }
         else return c.json({ models: [] }); // default fallback
 
         const response = await fetch(url, {

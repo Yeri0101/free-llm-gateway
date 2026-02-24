@@ -1,0 +1,82 @@
+import { Hono } from 'hono';
+import { supabase } from '../db';
+import { authMiddleware } from '../middleware/auth';
+
+const upstreamKeys = new Hono();
+
+upstreamKeys.use('*', authMiddleware);
+
+import { providerStates } from '../utils/limitTracker';
+
+upstreamKeys.get('/health', async (c) => {
+    return c.json(providerStates);
+});
+
+// List upstream keys (without exposing the actual API key string for security)
+upstreamKeys.get('/', async (c) => {
+    const { data, error } = await supabase
+        .from('upstream_keys')
+        .select('id, project_id, provider, created_at, projects(name)')
+        .order('created_at', { ascending: false });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+});
+
+upstreamKeys.post('/', async (c) => {
+    const { project_id, provider, api_key } = await c.req.json();
+    const { data, error } = await supabase
+        .from('upstream_keys')
+        .insert([{ project_id, provider, api_key }])
+        .select('id, project_id, provider, created_at')
+        .single();
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data, 201);
+});
+
+upstreamKeys.delete('/:id', async (c) => {
+    const { id } = c.req.param();
+    const { error } = await supabase.from('upstream_keys').delete().eq('id', id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true });
+});
+
+// A route to fetch available models for a given Upstream Key
+upstreamKeys.get('/:id/models', async (c) => {
+    const { id } = c.req.param();
+
+    // 1. Fetch the key from db
+    const { data: keyData, error } = await supabase
+        .from('upstream_keys')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+    if (error || !keyData) return c.json({ error: 'Key not found' }, 404);
+
+    try {
+        // 2. Query provider API for models
+        let url = '';
+        if (keyData.provider === 'openai') url = 'https://api.openai.com/v1/models';
+        else if (keyData.provider === 'groq') url = 'https://api.groq.com/openai/v1/models';
+        else if (keyData.provider === 'openrouter') url = 'https://openrouter.ai/api/v1/models';
+        else return c.json({ models: [] }); // default fallback
+
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${keyData.api_key}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Provider returned ${response.status}`);
+        }
+
+        const result = await response.json();
+        return c.json({ models: result.data || [] });
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500);
+    }
+});
+
+export default upstreamKeys;

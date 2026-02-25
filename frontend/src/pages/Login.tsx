@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchApi } from '../api';
 import { Layers } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 export default function Login() {
+    const { t } = useLanguage();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -22,9 +24,10 @@ export default function Login() {
             });
 
             localStorage.setItem('token', res.token);
+            localStorage.setItem('user', res.user || username);
             navigate('/');
         } catch (err: any) {
-            setError(err.message || 'Login failed');
+            setError(err.message || t('login.error'));
         } finally {
             setLoading(false);
         }
@@ -37,8 +40,8 @@ export default function Login() {
                     <div className="logo-icon" style={{ width: '48px', height: '48px', margin: '0 auto 1rem' }}>
                         <Layers size={28} />
                     </div>
-                    <h2>Admin Login</h2>
-                    <p>Sign in to manage API routing</p>
+                    <h2>{t('login.title')}</h2>
+                    <p>{t('login.subtitle')}</p>
                 </div>
 
                 {error && (
@@ -60,7 +63,7 @@ export default function Login() {
                     </div>
 
                     <div className="form-group" style={{ marginBottom: '2rem' }}>
-                        <label>Password</label>
+                        <label>{t('login.password')}</label>
                         <input
                             type="password"
                             value={password}
@@ -71,7 +74,7 @@ export default function Login() {
                     </div>
 
                     <button type="submit" className="btn btn-primary w-full" disabled={loading}>
-                        {loading ? 'Authenticating...' : 'Sign In'}
+                        {loading ? t('login.btn_signing_in') : t('login.btn_signin')}
                     </button>
                 </form>
             </div>

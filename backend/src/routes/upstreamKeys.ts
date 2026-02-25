@@ -6,7 +6,7 @@ const upstreamKeys = new Hono();
 
 upstreamKeys.use('*', authMiddleware);
 
-import { providerStates } from '../utils/limitTracker';
+import { providerStates, resetAllProvidersStatus, resetProviderStatus, pauseProvider } from '../utils/limitTracker';
 
 upstreamKeys.get('/health', async (c) => {
     return c.json(providerStates);
@@ -38,6 +38,23 @@ upstreamKeys.delete('/:id', async (c) => {
     const { id } = c.req.param();
     const { error } = await supabase.from('upstream_keys').delete().eq('id', id);
     if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true });
+});
+
+upstreamKeys.post('/reset-all', async (c) => {
+    resetAllProvidersStatus();
+    return c.json({ success: true });
+});
+
+upstreamKeys.post('/:id/reset', async (c) => {
+    const { id } = c.req.param();
+    resetProviderStatus(id);
+    return c.json({ success: true });
+});
+
+upstreamKeys.post('/:id/pause', async (c) => {
+    const { id } = c.req.param();
+    pauseProvider(id);
     return c.json({ success: true });
 });
 
@@ -89,6 +106,7 @@ upstreamKeys.get('/:id/models', async (c) => {
         const result = await response.json();
         return c.json({ models: result.data || [] });
     } catch (err: any) {
+        console.error('Error fetching models for key', id, 'Provider:', keyData.provider, err);
         return c.json({ error: err.message }, 500);
     }
 });

@@ -27,4 +27,12 @@ projects.delete('/:id', async (c) => {
     return c.json({ success: true });
 });
 
+projects.patch('/:id', async (c) => {
+    const { id } = c.req.param();
+    const { name } = await c.req.json();
+    const { data, error } = await supabase.from('projects').update({ name }).eq('id', id).select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+});
+
 export default projects;

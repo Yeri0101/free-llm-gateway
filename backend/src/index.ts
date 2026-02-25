@@ -3,12 +3,18 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import * as dotenv from 'dotenv';
+import * as dns from 'node:dns';
+
+// Fix for Node.js fetch() timeout on Windows with Google APIs IPv6 
+dns.setDefaultResultOrder('ipv4first');
+
 import { supabase } from './db';
 
 import projectsRoute from './routes/projects';
 import upstreamKeysRoute from './routes/upstreamKeys';
 import gatewayKeysRoute from './routes/gatewayKeys';
 import v1Route from './routes/v1';
+import analyticsRoute from './routes/analytics';
 
 dotenv.config();
 
@@ -20,6 +26,7 @@ app.use('*', cors());
 app.route('/api/projects', projectsRoute);
 app.route('/api/providers', upstreamKeysRoute);
 app.route('/api/gateway-keys', gatewayKeysRoute);
+app.route('/api/analytics', analyticsRoute);
 app.route('/v1', v1Route);
 
 app.get('/', (c) => {
@@ -45,6 +52,31 @@ app.post('/api/auth/login', async (c) => {
 
     // Issue a simple token (mock JWT for now)
     return c.json({ token: 'mock-admin-token-123', user: data.username });
+});
+
+app.put('/api/auth/password', async (c) => {
+    const { username, currentPassword, newPassword } = await c.req.json();
+
+    const { data, error } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('username', username)
+        .single();
+
+    if (error || !data || data.password_hash !== currentPassword) {
+        return c.json({ error: 'Invalid current password' }, 401);
+    }
+
+    const { error: updateError } = await supabase
+        .from('admins')
+        .update({ password_hash: newPassword })
+        .eq('username', username);
+
+    if (updateError) {
+        return c.json({ error: updateError.message }, 500);
+    }
+
+    return c.json({ success: true });
 });
 
 const port = parseInt(process.env.PORT || '3000');

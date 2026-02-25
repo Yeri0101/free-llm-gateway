@@ -1,4 +1,4 @@
-export type ProviderStatus = 'healthy' | 'rate_limited' | 'error';
+export type ProviderStatus = 'healthy' | 'rate_limited' | 'error' | 'paused';
 
 interface ProviderState {
     status: ProviderStatus;
@@ -12,6 +12,63 @@ interface ProviderState {
 }
 
 export const providerStates: Record<string, ProviderState> = {};
+
+export function resetProviderStatus(upstreamKeyId: string) {
+    if (providerStates[upstreamKeyId]) {
+        providerStates[upstreamKeyId].status = 'healthy';
+        providerStates[upstreamKeyId].lastError = undefined;
+    }
+}
+
+export function resetAllProvidersStatus() {
+    Object.keys(providerStates).forEach(id => {
+        providerStates[id].status = 'healthy';
+        providerStates[id].lastError = undefined;
+    });
+}
+
+export function pauseProvider(upstreamKeyId: string) {
+    if (!providerStates[upstreamKeyId]) {
+        const now = new Date();
+        providerStates[upstreamKeyId] = {
+            status: 'paused',
+            requestsPerMinute: 0,
+            requestsPerDay: 0,
+            tokensPerMinute: 0,
+            tokensPerDay: 0,
+            resetMinute: now.getMinutes(),
+            resetDay: now.getDate()
+        };
+    } else {
+        providerStates[upstreamKeyId].status = 'paused';
+    }
+}
+
+export function checkAndRecoverProvider(upstreamKeyId: string): ProviderStatus {
+    const state = providerStates[upstreamKeyId];
+    if (!state) return 'healthy'; // if no state tracked, assume healthy
+
+    const now = new Date();
+    const minute = now.getMinutes();
+    const day = now.getDate();
+
+    if (state.status === 'rate_limited' || state.status === 'error') {
+        // If the minute has changed, it gets a fresh try
+        if (state.resetMinute !== minute) {
+            state.status = 'healthy';
+            state.resetMinute = minute;
+            state.requestsPerMinute = 0;
+            state.tokensPerMinute = 0;
+        } else if (state.resetDay !== day) {
+            state.status = 'healthy';
+            state.resetDay = day;
+            state.requestsPerDay = 0;
+            state.tokensPerDay = 0;
+        }
+    }
+
+    return state.status;
+}
 
 export function updateProviderCalls(upstreamKeyId: string, tokens: number) {
     const now = new Date();

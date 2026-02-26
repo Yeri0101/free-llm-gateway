@@ -72,8 +72,25 @@ export default function ProjectDetail() {
         }
     };
 
+    const loadRealtimeData = async () => {
+        if (!id) return;
+        try {
+            const healthData = await fetchApi('/providers/health');
+            setProviderHealth(healthData);
+        } catch (e) { }
+
+        try {
+            const analyticsRes = await fetchApi(`/analytics/${id}`);
+            setAnalyticsData(analyticsRes);
+        } catch (e) { }
+    };
+
     useEffect(() => {
         loadData();
+        const interval = setInterval(() => {
+            loadRealtimeData();
+        }, 4000);
+        return () => clearInterval(interval);
     }, [id]);
 
     const handleAddProvider = async (e: React.FormEvent) => {
@@ -346,8 +363,8 @@ export default function ProjectDetail() {
                                     </thead>
                                     <tbody>
                                         {providers.map((p, index) => {
-                                            const health = providerHealth[p.id];
-                                            const status = health ? health.status : 'unknown';
+                                            const health = providerHealth[p.id] || { status: 'healthy', requestsPerMinute: 0, requestsPerDay: 0, tokensPerMinute: 0, tokensPerDay: 0 };
+                                            const status = health.status;
                                             let statusColor = 'var(--text-muted)';
                                             if (status === 'healthy') statusColor = 'var(--success)';
                                             else if (status === 'rate_limited') statusColor = 'var(--warning)';
@@ -368,12 +385,10 @@ export default function ProjectDetail() {
                                                         {health?.lastError && <div style={{ fontSize: '0.7rem', color: 'var(--danger)', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={health.lastError}>{health.lastError}</div>}
                                                     </td>
                                                     <td style={{ fontSize: '0.85rem' }}>
-                                                        {health ? (
-                                                            <div>
-                                                                <div>Reqs: {health.requestsPerMinute} / {health.requestsPerDay}</div>
-                                                                <div style={{ color: 'var(--text-secondary)' }}>Tok: {health.tokensPerMinute} / {health.tokensPerDay}</div>
-                                                            </div>
-                                                        ) : '-'}
+                                                        <div>
+                                                            <div>Reqs: {health.requestsPerMinute} / {health.requestsPerDay}</div>
+                                                            <div style={{ color: 'var(--text-secondary)' }}>Tok: {health.tokensPerMinute} / {health.tokensPerDay}</div>
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <div className="flex gap-2">

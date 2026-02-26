@@ -157,10 +157,20 @@ v1.post('/chat/completions', async (c) => {
                     // This creates a perfect real-time typing effect in the OpenClaw terminal.
                     return stream(c, async (s) => {
                         const reader = response.body!.getReader();
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            await s.write(value); // Flush the chunk instantly to the client
+
+                        s.onAbort(() => {
+                            console.log(`[Stream] Client disconnected from ${usedProvider}, aborting upstream fetch.`);
+                            reader.cancel().catch(() => { });
+                        });
+
+                        try {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                await s.write(value); // Flush the chunk instantly to the client
+                            }
+                        } catch (err: any) {
+                            console.error(`[Stream] Error streaming from ${usedProvider}:`, err.message);
                         }
                     });
                 }

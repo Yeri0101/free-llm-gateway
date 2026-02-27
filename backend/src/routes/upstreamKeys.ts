@@ -12,14 +12,24 @@ upstreamKeys.get('/health', async (c) => {
     return c.json(providerStates);
 });
 
-// List upstream keys (without exposing the actual API key string for security)
+// List upstream keys — includes a masked key_preview (first 4 + last 4 chars) for identification without exposing the full key
 upstreamKeys.get('/', async (c) => {
     const { data, error } = await supabase
         .from('upstream_keys')
-        .select('id, project_id, provider, created_at, projects(name)')
+        .select('id, project_id, provider, created_at, api_key, projects(name)')
         .order('created_at', { ascending: false });
     if (error) return c.json({ error: error.message }, 500);
-    return c.json(data);
+
+    const sanitized = (data || []).map((row: any) => {
+        const key: string = row.api_key || '';
+        const key_preview = key.length > 8
+            ? `${key.slice(0, 4)}...${key.slice(-4)}`
+            : `${key.slice(0, 2)}...`;
+        const { api_key: _removed, ...rest } = row;
+        return { ...rest, key_preview };
+    });
+
+    return c.json(sanitized);
 });
 
 upstreamKeys.post('/', async (c) => {

@@ -22,6 +22,20 @@ v1.post('/chat/completions', async (c) => {
     try {
         const body = await c.req.json();
         const requestedModel = body.model;
+        // Debug: dump body structure to file to diagnose 400 errors
+        try {
+            const { writeFileSync } = await import('fs');
+            writeFileSync('/tmp/openclaw-body.json', JSON.stringify({
+                model: body.model, stream: body.stream, max_tokens: body.max_tokens,
+                tool_choice: body.tool_choice, response_format: body.response_format,
+                keys: Object.keys(body), tools_count: (body.tools || []).length,
+                messages: body.messages?.map((m: any) => ({
+                    role: m.role, has_tool_calls: !!(m.tool_calls?.length),
+                    content_type: typeof m.content, content_len: (m.content || '').length
+                }))
+            }, null, 2));
+        } catch (_) { }
+
 
         // Check if the gateway key is allowed to use this model
         const allowed = allowedModels.filter((m: any) => m.model_name === requestedModel);
@@ -31,23 +45,35 @@ v1.post('/chat/completions', async (c) => {
         }
 
         // Filter out keys marked as error or rate_limited from our tracker
-        // Using checkAndRecoverProvider allows keys to be retried after their timeout
         const healthyAllowed = allowed.filter((m: any) => {
             return checkAndRecoverProvider(m.upstream_key_id) === 'healthy';
         });
 
-        // Fallback to all mapping if everything is rate_limited (at least let them hit the API to see the error)
+        // Fallback to all mappings if everything is unhealthy
         let candidates = healthyAllowed.length > 0 ? healthyAllowed : allowed;
 
         if (candidates.length === 0) {
             return c.json({ error: { message: `Model ${requestedModel} is not available.`, type: "invalid_request_error" } }, 403);
         }
 
-        // Round-robin load balancing logic
+        // Round-robin load balancing
         const counterKey = `${gatewayKey.id}:${requestedModel}`;
         if (typeof modelCounters[counterKey] === 'undefined') {
             modelCounters[counterKey] = 0;
         }
+
+        // Diagnostic: log all configured keys and their health status for this model
+        const ts0 = new Date().toISOString();
+        console.log(`[${ts0}] [RoundRobin] model=${requestedModel} | DB keys for this gw-key: ${allowed.length} | Healthy: ${healthyAllowed.length} | Counter: ${modelCounters[counterKey]}`);
+        allowed.forEach((m: any, i: number) => {
+            const s = checkAndRecoverProvider(m.upstream_key_id);
+            console.log(`[${ts0}]   slot[${i}] upstream_id=${m.upstream_key_id.substring(0, 8)}... health=${s} inCandidates=${candidates.some((c: any) => c.upstream_key_id === m.upstream_key_id)}`);
+        });
+
+        // Advance counter ONCE before the fallback loop so that failed retries
+        // don't consume a rotation slot and skip a key on the next request.
+        const startIndex = modelCounters[counterKey] % candidates.length;
+        modelCounters[counterKey]++;
 
         const startTime = Date.now();
         let finalResponse: any = null;
@@ -58,12 +84,11 @@ v1.post('/chat/completions', async (c) => {
         let finalErrorMsg: string | null = null;
         let finalErrorData: any = null;
 
-        // Fallback Loop
+        // Fallback Loop — starts at startIndex, wraps around through all candidates
         for (let attempt = 0; attempt < candidates.length; attempt++) {
-            // Select the next upstream key and increment the counter
-            const selectedIndex = modelCounters[counterKey] % candidates.length;
+            const selectedIndex = (startIndex + attempt) % candidates.length;
             const selectedMapping = candidates[selectedIndex];
-            modelCounters[counterKey]++; // increment for next time
+
 
             usedUpstreamKeyId = selectedMapping.upstream_key_id;
 
@@ -74,12 +99,14 @@ v1.post('/chat/completions', async (c) => {
                 .single();
 
             if (error || !upstream) {
-                console.error(`Upstream provider not found or misconfigured for id: ${selectedMapping.upstream_key_id}`);
+                const timestamp = new Date().toISOString();
+                console.error(`[${timestamp}] Upstream provider not found or misconfigured for id: ${selectedMapping.upstream_key_id}`);
                 continue; // Try next
             }
 
             usedProvider = upstream.provider;
-            console.log(`[Load Balancer] Attempt ${attempt + 1}: Using upstream key ${upstream.id} for model ${requestedModel} (Index: ${selectedIndex}, Total Options: ${candidates.length})`);
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [Load Balancer] Attempt ${attempt + 1}: Using upstream key ${upstream.id} for model ${requestedModel} (Index: ${selectedIndex}, Total Options: ${candidates.length})`);
 
             // Determine the base URL based on provider
             let baseUrl = '';
@@ -89,8 +116,56 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
             if (!baseUrl) {
-                console.error(`Unknown provider ${upstream.provider}`);
+                const timestamp = new Date().toISOString();
+                console.error(`[${timestamp}] Unknown provider ${upstream.provider}`);
                 continue; // Try next
+            }
+
+            // Deep copy the body so provider-specific normalizations don't mutate the original
+            // This is crucial for fallback: if Google fails, the next provider needs the original fields.
+            const forwardBody = JSON.parse(JSON.stringify(body));
+
+            // Cap max_tokens to prevent provider rejections and credit pre-reservation issues on OpenRouter
+            if (forwardBody.max_tokens && forwardBody.max_tokens > 16000) {
+                forwardBody.max_tokens = 16000;
+            }
+
+            // Google OpenAI-compat normalization for gemini-3+ models:
+            if (upstream.provider === 'google') {
+                // 1. Map max_completion_tokens → max_tokens (google compat uses max_tokens)
+                if (forwardBody.max_completion_tokens && !forwardBody.max_tokens) {
+                    forwardBody.max_tokens = forwardBody.max_completion_tokens;
+                }
+                // 2. Remove fields Google does not support
+                delete forwardBody.store;
+                delete forwardBody.stream_options;
+                delete forwardBody.max_completion_tokens;
+
+                // 3. Normalize messages
+                if (Array.isArray(forwardBody.messages)) {
+                    forwardBody.messages = forwardBody.messages.map((msg: any) => {
+                        // Flatten content arrays (OpenAI content blocks) → plain string
+                        let content = msg.content;
+                        if (Array.isArray(content)) {
+                            content = content
+                                .map((block: any) => {
+                                    if (typeof block === 'string') return block;
+                                    if (block?.type === 'text') return block.text ?? '';
+                                    return '';
+                                })
+                                .join('');
+                        }
+                        // role:tool → role:user (Google compat rejects tool role)
+                        if (msg.role === 'tool') {
+                            return { role: 'user', content: content ?? '' };
+                        }
+                        // assistant: content must not be null
+                        if (msg.role === 'assistant' && (content === null || content === undefined)) {
+                            content = '';
+                        }
+                        return { ...msg, content };
+                    });
+                }
             }
 
             try {
@@ -103,7 +178,7 @@ v1.post('/chat/completions', async (c) => {
                         // If OpenRouter, add required headers (can be configurable later)
                         ...(upstream.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'OpenClaw Gateway' } : {})
                     },
-                    body: JSON.stringify(body)
+                    body: JSON.stringify(forwardBody)
                 });
 
                 if (!response.ok) {
@@ -115,7 +190,14 @@ v1.post('/chat/completions', async (c) => {
                     finalStatus = response.status;
                     finalErrorMsg = errMsg;
                     finalErrorData = errData;
-                    console.error(`[Fallback] API request failed with ${response.status}: ${errMsg}`);
+                    const timestamp = new Date().toISOString();
+                    console.error(`[${timestamp}] [Fallback] API request failed with ${response.status}: ${errMsg}`);
+                    if (response.status === 400) {
+                        // Debug: show what we sent and what Google returned
+                        console.error(`[${timestamp}] [Debug400] Body keys sent: ${Object.keys(body).join(', ')}`);
+                        console.error(`[${timestamp}] [Debug400] Body model: ${body.model}, stream: ${body.stream}, max_tokens: ${body.max_tokens}, tools count: ${(body.tools || []).length}`);
+                        console.error(`[${timestamp}] [Debug400] Google error: ${JSON.stringify(errData).substring(0, 500)}`);
+                    }
 
                     if (isRateLimit || response.status >= 500) {
                         continue; // try next candidate if rate limited or server error
@@ -145,7 +227,10 @@ v1.post('/chat/completions', async (c) => {
                         latency_ms: latencyMs,
                         total_tokens: finalTokens
                     }]).then(({ error: logErr }) => {
-                        if (logErr) console.error("Logging failed:", logErr);
+                        if (logErr) {
+                            const timestamp = new Date().toISOString();
+                            console.error(`[${timestamp}] Logging failed:`, logErr);
+                        }
                     });
 
                     c.header('Content-Type', 'text/event-stream');
@@ -159,18 +244,29 @@ v1.post('/chat/completions', async (c) => {
                         const reader = response.body!.getReader();
 
                         s.onAbort(() => {
-                            console.log(`[Stream] Client disconnected from ${usedProvider}, aborting upstream fetch.`);
+                            const timestamp = new Date().toISOString();
+                            console.log(`[${timestamp}] [Stream] Client disconnected from ${usedProvider}, aborting upstream fetch.`);
                             reader.cancel().catch(() => { });
                         });
 
                         try {
+                            const timestamp = new Date().toISOString();
+                            console.log(`[${timestamp}] [Stream] Started streaming from ${usedProvider}`);
+                            let chunkCount = 0;
                             while (true) {
                                 const { done, value } = await reader.read();
-                                if (done) break;
+                                if (done) {
+                                    const ts = new Date().toISOString();
+                                    console.log(`[${ts}] [Stream] Finished reading from ${usedProvider} after ${chunkCount} chunks. Closing.`);
+                                    break;
+                                }
+                                chunkCount++;
                                 await s.write(value); // Flush the chunk instantly to the client
+                                // console.log(`[Stream] Wrote chunk ${chunkCount} of length ${value?.length}`);
                             }
                         } catch (err: any) {
-                            console.error(`[Stream] Error streaming from ${usedProvider}:`, err.message);
+                            const timestamp = new Date().toISOString();
+                            console.error(`[${timestamp}] [Stream] Error streaming from ${usedProvider}:`, err.message);
                         }
                     });
                 }
@@ -193,7 +289,8 @@ v1.post('/chat/completions', async (c) => {
             } catch (fetchErr: any) {
                 finalStatus = 500;
                 finalErrorMsg = fetchErr.message;
-                console.error(`[Fallback] Fetch error: ${fetchErr.message}`);
+                const timestamp = new Date().toISOString();
+                console.error(`[${timestamp}] [Fallback] Fetch error: ${fetchErr.message}`);
                 markProviderError(upstream.id, 'error', fetchErr.message);
                 continue; // connection error, try next
             }
@@ -212,7 +309,10 @@ v1.post('/chat/completions', async (c) => {
             total_tokens: finalTokens,
             error_message: finalErrorMsg
         }]).then(({ error: logErr }) => {
-            if (logErr) console.error("Logging failed:", logErr);
+            if (logErr) {
+                const timestamp = new Date().toISOString();
+                console.error(`[${timestamp}] Logging failed:`, logErr);
+            }
         });
 
         if (finalResponse) {

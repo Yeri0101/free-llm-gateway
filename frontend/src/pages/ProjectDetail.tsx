@@ -4,8 +4,20 @@ import { fetchApi } from '../api';
 import { KeyRound, Server, ChevronLeft, Trash2, Plus, RefreshCw, CheckCircle2, Activity, Pause, Play } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
-type UpstreamKey = { id: string; provider: string; created_at: string };
+type UpstreamKey = { id: string; provider: string; created_at: string; key_preview?: string };
 type GatewayKey = { id: string; key_name: string; api_key: string; gateway_key_models: any[] };
+
+interface RequestLog {
+    id: string;
+    created_at: string;
+    provider: string;
+    model: string;
+    status: 'success' | 'error';
+    status_code: number;
+    latency_ms: number;
+    total_tokens: number;
+    error_message?: string;
+}
 
 export default function ProjectDetail() {
     const { t } = useLanguage();
@@ -28,6 +40,12 @@ export default function ProjectDetail() {
     const [testModels, setTestModels] = useState<Record<string, string>>({});
     const [testResults, setTestResults] = useState<Record<string, any>>({});
     const [testLoading, setTestLoading] = useState<Record<string, boolean>>({});
+
+    // Analytics states
+    const [_totalRequests, setTotalRequests] = useState<number>(0);
+    const [_errorRate, setErrorRate] = useState<number>(0);
+    const [_totalTokens, setTotalTokens] = useState<number>(0);
+    const [recentRequests, setRecentRequests] = useState<RequestLog[]>([]);
 
     const loadData = async () => {
         try {
@@ -63,6 +81,16 @@ export default function ProjectDetail() {
             try {
                 const analyticsRes = await fetchApi(`/analytics/${id}`);
                 setAnalyticsData(analyticsRes);
+                if (analyticsRes) {
+                    setTotalRequests(analyticsRes.stats?.totalRequests || 0);
+                    const errors = Math.round(analyticsRes.stats.totalRequests * (1 - analyticsRes.stats.successRate / 100));
+                    setErrorRate(errors);
+                    setTotalTokens(analyticsRes.stats?.totalTokens || 0);
+
+                    if (analyticsRes.recentLogs) {
+                        setRecentRequests(analyticsRes.recentLogs);
+                    }
+                }
             } catch (e) { console.error('Error fetching analytics:', e); }
 
         } catch (err) {
@@ -82,6 +110,15 @@ export default function ProjectDetail() {
         try {
             const analyticsRes = await fetchApi(`/analytics/${id}`);
             setAnalyticsData(analyticsRes);
+            if (analyticsRes) {
+                setTotalRequests(analyticsRes.stats?.totalRequests || 0);
+                const errors = Math.round(analyticsRes.stats.totalRequests * (1 - analyticsRes.stats.successRate / 100));
+                setErrorRate(errors);
+                setTotalTokens(analyticsRes.stats?.totalTokens || 0);
+                if (analyticsRes.recentLogs) {
+                    setRecentRequests(analyticsRes.recentLogs);
+                }
+            }
         } catch (e) { }
     };
 
@@ -172,6 +209,21 @@ export default function ProjectDetail() {
                 return prev.filter(m => !(m.upstream_key_id === upstream_key_id && m.model_name === model_name));
             }
             return [...prev, { upstream_key_id, model_name }];
+        });
+    };
+
+    const selectModelForAll = (model_name: string) => {
+        if (!model_name) return;
+        setSelectedModels(prev => {
+            // Remove all selections for this model_name across all keys, then add one per key that has it
+            const withoutThisModel = prev.filter(m => m.model_name !== model_name);
+            const newSelections: { upstream_key_id: string; model_name: string }[] = [];
+            availableModels.forEach(am => {
+                if (am.models.some(m => m.id === model_name)) {
+                    newSelections.push({ upstream_key_id: am.upstream_key_id, model_name });
+                }
+            });
+            return [...withoutThisModel, ...newSelections];
         });
     };
 
@@ -375,14 +427,16 @@ export default function ProjectDetail() {
                                                 <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                                                     <td>
                                                         <strong style={{ textTransform: 'capitalize' }}>#{index + 1} {p.provider}</strong>
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.id.split('-')[0]}...</div>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                                                            {p.key_preview || p.id.split('-')[0] + '...'}
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <span style={{ color: statusColor, display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}>
                                                             <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor }}></div>
                                                             {status}
                                                         </span>
-                                                        {health?.lastError && <div style={{ fontSize: '0.7rem', color: 'var(--danger)', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={health.lastError}>{health.lastError}</div>}
+                                                        {health?.error && <div style={{ fontSize: '0.7rem', color: 'var(--danger)', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={health.error}>{health.error}</div>}
                                                     </td>
                                                     <td style={{ fontSize: '0.85rem' }}>
                                                         <div>
@@ -447,6 +501,28 @@ export default function ProjectDetail() {
 
                             <div style={{ marginBottom: '2rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem' }}>{t('project.select_models')}</label>
+
+                                {/* ── Global quick-apply ── */}
+                                {availableModels.length > 0 && (() => {
+                                    const allModelIds = Array.from(
+                                        new Set(availableModels.flatMap(am => am.models.map(m => m.id)))
+                                    ).sort();
+                                    return (
+                                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
+                                            <select
+                                                defaultValue=""
+                                                onChange={e => { selectModelForAll(e.target.value); e.target.value = ''; }}
+                                                style={{ flex: 1, padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid var(--accent-primary)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">⚡ Aplicar modelo a TODAS las llaves…</option>
+                                                {allModelIds.map(id => (
+                                                    <option key={id} value={id}>{id}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    );
+                                })()}
+
                                 <div style={{ maxHeight: '250px', overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem' }}>
                                     {availableModels.length === 0 && <p className="text-secondary" style={{ fontSize: '0.9rem' }}>{t('project.no_models')}</p>}
                                     {availableModels.map(am => (
@@ -460,17 +536,31 @@ export default function ProjectDetail() {
                                                 return (
                                                     <div
                                                         key={m.id}
-                                                        onClick={() => toggleModelSelection(am.upstream_key_id, m.id)}
                                                         style={{
                                                             display: 'flex', alignItems: 'center', gap: '8px',
-                                                            padding: '0.5rem', borderRadius: '4px', cursor: 'pointer',
+                                                            padding: '0.4rem 0.5rem', borderRadius: '4px',
                                                             background: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                                                             border: `1px solid ${isSelected ? 'var(--accent-primary)' : 'transparent'}`,
                                                             marginBottom: '0.25rem'
                                                         }}
                                                     >
-                                                        {isSelected ? <CheckCircle2 size={16} color="var(--accent-primary)" /> : <div style={{ width: 16, height: 16, border: '1px solid var(--border-color)', borderRadius: '50%' }}></div>}
-                                                        <span style={{ fontSize: '0.85rem' }}>{m.id}</span>
+                                                        {/* Individual toggle */}
+                                                        <div
+                                                            onClick={() => toggleModelSelection(am.upstream_key_id, m.id)}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, cursor: 'pointer' }}
+                                                        >
+                                                            {isSelected ? <CheckCircle2 size={16} color="var(--accent-primary)" /> : <div style={{ width: 16, height: 16, border: '1px solid var(--border-color)', borderRadius: '50%' }}></div>}
+                                                            <span style={{ fontSize: '0.85rem' }}>{m.id}</span>
+                                                        </div>
+                                                        {/* Bulk-apply button */}
+                                                        <button
+                                                            type="button"
+                                                            title="Aplicar este modelo a todas las llaves"
+                                                            onClick={() => selectModelForAll(m.id)}
+                                                            style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', padding: '0.1rem 0.35rem', color: 'var(--text-muted)', fontSize: '0.7rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+                                                        >
+                                                            ⚡ all
+                                                        </button>
                                                     </div>
                                                 );
                                             })}
@@ -643,6 +733,63 @@ export default function ProjectDetail() {
                                     ))}
                                 </ul>
                             ) : <p>{t('project.analytics.no_model_data')}</p>}
+                        </div>
+                    </div>
+
+                    <div className="glass-panel" style={{ marginTop: '0.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Activity size={18} className="text-accent-primary" />
+                            {t('project.analytics.recent_requests') || 'Tabla de Peticiones y Timestamps'}
+                        </h3>
+                        <div style={{ overflowX: 'auto', maxHeight: '400px', overflowY: 'auto' }} className="custom-scrollbar">
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                                <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 10 }}>
+                                    <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Timestamp</th>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Model</th>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Status</th>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Latency</th>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Tokens</th>
+                                        <th style={{ padding: '0.75rem 0.5rem', fontWeight: 600 }}>Error</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {recentRequests.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                                                Sin peticiones recientes.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        recentRequests.map((req: any) => (
+                                            <tr key={req.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                                    {new Date(req.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '2px' }}>.{new Date(req.created_at).getMilliseconds()}</span>
+                                                </td>
+                                                <td style={{ padding: '0.75rem 0.5rem', fontWeight: 500 }}>{req.model}</td>
+                                                <td style={{ padding: '0.75rem 0.5rem' }}>
+                                                    <span style={{
+                                                        padding: '0.2rem 0.5rem',
+                                                        borderRadius: '4px',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 600,
+                                                        background: req.status === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                                        color: req.status === 'success' ? 'var(--success)' : 'var(--danger)'
+                                                    }}>
+                                                        {req.status_code || (req.status === 'success' ? 200 : 500)}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{req.latency_ms}ms</td>
+                                                <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{req.total_tokens || '-'}</td>
+                                                <td style={{ padding: '0.75rem 0.5rem', color: 'var(--danger)', fontSize: '0.75rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.error_message || ''}>
+                                                    {req.error_message || '-'}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

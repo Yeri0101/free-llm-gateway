@@ -372,6 +372,8 @@ export default function ProjectDetail() {
                                     <option value="openai">OpenAI</option>
                                     <option value="google">Google</option>
                                     <option value="anthropic">Anthropic</option>
+                                    <option value="minimax">MiniMax</option>
+                                    <option value="brave">Brave Search</option>
                                 </select>
                             </div>
                             <div className="form-group">

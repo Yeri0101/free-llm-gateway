@@ -331,4 +331,197 @@ v1.post('/chat/completions', async (c) => {
     }
 });
 
+// Counter for Brave Search round-robin
+const braveCounters: Record<string, number> = {};
+
+// Gateway proxy for Brave Web Search
+v1.get('/brave/search', async (c) => {
+    const gatewayKey = c.get('gatewayKey');
+    const { q, count, offset, country, search_lang, ui_lang, safesearch, freshness, extra_snippets, enable_rich_callback } = c.req.query();
+
+    if (!q) {
+        return c.json({ error: "Missing 'q' parameter for search" }, 400);
+    }
+
+    try {
+        const { data: keys, error } = await supabase
+            .from('upstream_keys')
+            .select('*')
+            .eq('project_id', gatewayKey.project_id)
+            .eq('provider', 'brave');
+
+        if (error || !keys || keys.length === 0) {
+            return c.json({ error: "No Brave Search keys configured for this project" }, 404);
+        }
+
+        // Filter healthy keys
+        const healthyKeys = keys.filter(k => {
+            const st = providerStates[k.id];
+            return !st || st.status === 'healthy';
+        });
+
+        if (healthyKeys.length === 0) {
+            return c.json({ error: "All configured Brave Search keys are currently exhausted or paused." }, 429);
+        }
+
+        const projectId = gatewayKey.project_id;
+        if (braveCounters[projectId] === undefined) braveCounters[projectId] = 0;
+
+        const keyIndex = braveCounters[projectId] % healthyKeys.length;
+        braveCounters[projectId]++;
+        const selectedKey = healthyKeys[keyIndex];
+
+        // Build URL
+        const url = new URL('https://api.search.brave.com/res/v1/web/search');
+        url.searchParams.append('q', q);
+        if (count) url.searchParams.append('count', count);
+        if (offset) url.searchParams.append('offset', offset);
+        if (country) url.searchParams.append('country', country);
+        if (search_lang) url.searchParams.append('search_lang', search_lang);
+        if (ui_lang) url.searchParams.append('ui_lang', ui_lang);
+        if (safesearch) url.searchParams.append('safesearch', safesearch);
+        if (freshness) url.searchParams.append('freshness', freshness);
+        if (extra_snippets) url.searchParams.append('extra_snippets', extra_snippets);
+        if (enable_rich_callback) url.searchParams.append('enable_rich_callback', enable_rich_callback);
+
+        const startTime = Date.now();
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'X-Subscription-Token': selectedKey.api_key
+            }
+        });
+
+        const status = response.status;
+        let data: any;
+
+        try {
+            data = await response.json();
+        } catch (e) {
+            data = await response.text();
+        }
+
+        if (status === 429) {
+            // Mark provider as paused
+            markProviderError(selectedKey.id, 'rate_limited', 'Brave Search API Rate limit exceeded');
+            return c.json({ error: "Brave Search API Rate limit exceeded. Try again." }, 429);
+        }
+
+        if (!response.ok) {
+            return c.json({ error: data }, status as any);
+        }
+
+        // Track usage (assuming 1 request = 1 call, tokens are not applicable here)
+        updateProviderCalls(selectedKey.id, 0);
+
+        // Add metadata for debugging
+        if (typeof data === 'object' && data !== null) {
+            data._openclaw_metadata = {
+                provider: 'brave',
+                upstream_key_id: selectedKey.id,
+                latency_ms: Date.now() - startTime
+            };
+        }
+
+        return c.json(data, status as any);
+
+    } catch (err: any) {
+        return c.json({ error: { message: err.message, type: "internal_server_error" } }, 500);
+    }
+});
+
+// Gateway proxy for Brave Local POIs
+v1.get('/brave/local/pois', async (c) => {
+    const gatewayKey = c.get('gatewayKey');
+    const ids = c.req.queries('ids'); // expects ?ids=123&ids=456
+
+    if (!ids || ids.length === 0) {
+        return c.json({ error: "Missing 'ids' parameter" }, 400);
+    }
+
+    try {
+        const { data: keys, error } = await supabase
+            .from('upstream_keys')
+            .select('*')
+            .eq('project_id', gatewayKey.project_id)
+            .eq('provider', 'brave');
+
+        if (error || !keys || keys.length === 0) return c.json({ error: "No Brave Search keys configured" }, 404);
+
+        const healthyKeys = keys.filter(k => !providerStates[k.id] || providerStates[k.id].status === 'healthy');
+        if (healthyKeys.length === 0) return c.json({ error: "All keys exhausted" }, 429);
+
+        const projectId = gatewayKey.project_id;
+        if (braveCounters[projectId] === undefined) braveCounters[projectId] = 0;
+        const selectedKey = healthyKeys[braveCounters[projectId]++ % healthyKeys.length];
+
+        const url = new URL('https://api.search.brave.com/res/v1/local/pois');
+        ids.forEach(id => url.searchParams.append('ids', id));
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-Subscription-Token': selectedKey.api_key
+            }
+        });
+
+        const data = await (response.ok ? response.json() : response.text());
+
+        if (response.status === 429) markProviderError(selectedKey.id, 'rate_limited', 'Brave Search Local API Rate limit exceeded');
+        if (response.ok) updateProviderCalls(selectedKey.id, 0);
+
+        return c.json(data, response.status as any);
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500);
+    }
+});
+
+// Gateway proxy for Brave Local Descriptions (AI-generated location summaries)
+v1.get('/brave/local/descriptions', async (c) => {
+    const gatewayKey = c.get('gatewayKey');
+    const ids = c.req.queries('ids');
+
+    if (!ids || ids.length === 0) return c.json({ error: "Missing 'ids' parameter" }, 400);
+
+    try {
+        const { data: keys, error } = await supabase
+            .from('upstream_keys')
+            .select('*')
+            .eq('project_id', gatewayKey.project_id)
+            .eq('provider', 'brave');
+
+        if (error || !keys || keys.length === 0) return c.json({ error: "No Brave Search keys configured" }, 404);
+
+        const healthyKeys = keys.filter(k => !providerStates[k.id] || providerStates[k.id].status === 'healthy');
+        if (healthyKeys.length === 0) return c.json({ error: "All keys exhausted" }, 429);
+
+        const projectId = gatewayKey.project_id;
+        if (braveCounters[projectId] === undefined) braveCounters[projectId] = 0;
+        const selectedKey = healthyKeys[braveCounters[projectId]++ % healthyKeys.length];
+
+        const url = new URL('https://api.search.brave.com/res/v1/local/descriptions');
+        ids.forEach(id => url.searchParams.append('ids', id));
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-Subscription-Token': selectedKey.api_key
+            }
+        });
+
+        const data = await (response.ok ? response.json() : response.text());
+
+        if (response.status === 429) markProviderError(selectedKey.id, 'rate_limited', 'Brave Local Descriptions Rate limit exceeded');
+        if (response.ok) updateProviderCalls(selectedKey.id, 0);
+
+        return c.json(data, response.status as any);
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500);
+    }
+});
+
 export default v1;

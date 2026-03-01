@@ -3,6 +3,7 @@ import { stream } from 'hono/streaming';
 import { supabase } from '../db';
 import { gatewayAuth } from '../middleware/gatewayAuth';
 import { providerStates, updateProviderCalls, markProviderError, checkAndRecoverProvider } from '../utils/limitTracker';
+import { callPuterAI, callPuterAIStream } from '../utils/puterClient';
 
 type Variables = {
     gatewayKey: any;
@@ -114,6 +115,72 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'groq') baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
             else if (upstream.provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
             else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+            else if (upstream.provider === 'puter') {
+                // Puter uses a JS SDK, not a REST endpoint — handle separately
+                try {
+                    const ts = new Date().toISOString();
+                    console.log(`[${ts}] [Puter] Using Puter AI SDK, model=${requestedModel}`);
+
+                    if (body.stream) {
+                        // Streaming via Puter SDK
+                        finalStatus = 200;
+                        updateProviderCalls(upstream.id, 500);
+                        const latencyMs = Date.now() - startTime;
+                        supabase.from('request_logs').insert([{
+                            project_id: gatewayKey.project_id,
+                            gateway_key_id: gatewayKey.id,
+                            upstream_key_id: upstream.id,
+                            provider: 'puter',
+                            model: requestedModel,
+                            status_code: 200,
+                            latency_ms: latencyMs,
+                            total_tokens: 500
+                        }]).then(() => { });
+
+                        c.header('Content-Type', 'text/event-stream');
+                        c.header('Cache-Control', 'no-cache');
+                        c.header('Connection', 'keep-alive');
+
+                        return stream(c, async (s) => {
+                            try {
+                                const gen = callPuterAIStream(upstream.api_key, body.messages, {
+                                    model: requestedModel,
+                                    max_tokens: body.max_tokens,
+                                    temperature: body.temperature,
+                                });
+                                for await (const chunk of gen) {
+                                    await s.write(new TextEncoder().encode(chunk));
+                                }
+                            } catch (err: any) {
+                                console.error(`[Puter] Stream error: ${err.message}`);
+                                markProviderError(upstream.id, 'error', err.message);
+                            }
+                        });
+                    } else {
+                        // Non-streaming
+                        const data = await callPuterAI(upstream.api_key, body.messages, {
+                            model: requestedModel,
+                            max_tokens: body.max_tokens,
+                            temperature: body.temperature,
+                        });
+
+                        finalStatus = 200;
+                        finalTokens = data.usage?.total_tokens || 0;
+                        updateProviderCalls(upstream.id, finalTokens);
+
+                        data._openclaw_metadata = { provider: 'puter', upstream_key_id: upstream.id };
+                        finalResponse = data;
+                        break; // success
+                    }
+                } catch (puterErr: any) {
+                    const ts = new Date().toISOString();
+                    console.error(`[${ts}] [Puter] Error: ${puterErr.message}`);
+                    markProviderError(upstream.id, 'error', puterErr.message);
+                    finalStatus = 500;
+                    finalErrorMsg = puterErr.message;
+                    continue; // try next candidate
+                }
+            }
 
             if (!baseUrl) {
                 const timestamp = new Date().toISOString();

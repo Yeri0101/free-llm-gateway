@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { supabase } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { PUTER_MODELS } from '../utils/puterClient';
 
 const upstreamKeys = new Hono();
 
@@ -100,6 +101,10 @@ upstreamKeys.get('/:id/models', async (c) => {
                     id: m.name.replace('models/', '')
                 }));
             return c.json({ models: mappedModels });
+        }
+        else if (keyData.provider === 'puter') {
+            // Puter doesn't have a /models endpoint — return our curated list
+            return c.json({ models: PUTER_MODELS });
         }
         else return c.json({ models: [] }); // default fallback
 

@@ -24,6 +24,78 @@ export interface OpenAIMessage {
 }
 
 /**
+ * Extracts the text content from any Puter response structure.
+ * Puter can return many different shapes depending on the model:
+ * - string
+ * - { message: { content: string } }
+ * - { text: string }
+ * - { choices: [{ message: { content: string } }] }
+ * - AsyncIterable (Claude sometimes does this even in non-stream mode)
+ */
+async function extractContent(result: any): Promise<string> {
+    const ts = new Date().toISOString();
+
+    // If it's a plain string
+    if (typeof result === 'string') {
+        return result;
+    }
+
+    // If it's an AsyncIterable / async generator (some Claude models stream by default)
+    if (result && typeof result[Symbol.asyncIterator] === 'function') {
+        console.log(`[${ts}] [Puter] Response is AsyncIterable, collecting chunks for non-stream call`);
+        let collected = '';
+        for await (const chunk of result) {
+            const delta =
+                typeof chunk === 'string'
+                    ? chunk
+                    : chunk?.text ?? chunk?.delta?.content ?? chunk?.choices?.[0]?.delta?.content ?? '';
+            collected += delta;
+        }
+        return collected;
+    }
+
+    // Standard OpenAI-like shape
+    if (result?.choices?.[0]?.message?.content !== undefined) {
+        const c = result.choices[0].message.content;
+        if (Array.isArray(c)) return c.map((b: any) => b.text || '').join('');
+        return c ?? '';
+    }
+
+    // Puter native shape: { message: { content } }
+    if (result?.message?.content !== undefined) {
+        const c = result.message.content;
+        if (Array.isArray(c)) return c.map((b: any) => b.text || '').join('');
+        return c ?? '';
+    }
+
+    // Puter native shape: { text }
+    if (result?.text !== undefined) {
+        return String(result.text);
+    }
+
+    // Last resort: stringify non-null result
+    if (result !== null && result !== undefined) {
+        console.warn(`[${ts}] [Puter] Unknown response shape, keys:`, Object.keys(result));
+        return JSON.stringify(result);
+    }
+
+    return '';
+}
+
+/**
+ * Normalize messages to what puter.ai.chat() accepts.
+ */
+function normalizeMessages(messages: OpenAIMessage[]) {
+    return messages.map((m) => ({
+        role: m.role === 'tool' ? 'user' : m.role,
+        content: m.content ?? '',
+        ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+        ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+        ...(m.name ? { name: m.name } : {}),
+    }));
+}
+
+/**
  * Calls puter.ai.chat() with the given auth token and returns an
  * OpenAI-compatible chat completion response object (non-streaming).
  */
@@ -32,42 +104,32 @@ export async function callPuterAI(
     messages: OpenAIMessage[],
     options: PuterChatOptions = {}
 ): Promise<any> {
+    const ts = new Date().toISOString();
     const puter = init(authToken);
 
-    // Normalize messages: puter.ai.chat expects { role, content } objects.
-    // Convert null content to empty string; drop unsupported roles gracefully.
-    const normalizedMessages = messages.map((m) => ({
-        role: m.role === 'tool' ? 'user' : m.role,
-        content: m.content ?? '',
-        ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
-        ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-        ...(m.name ? { name: m.name } : {}),
-    }));
+    const normalizedMessages = normalizeMessages(messages);
 
     const chatOptions: Record<string, any> = {};
     if (options.model) chatOptions.model = options.model;
     if (options.max_tokens) chatOptions.max_tokens = options.max_tokens;
     if (options.temperature !== undefined) chatOptions.temperature = options.temperature;
 
+    console.log(`[${ts}] [Puter] Calling puter.ai.chat model=${options.model ?? 'default'} msgs=${normalizedMessages.length}`);
+
     const startTime = Date.now();
-
-    // Non-streaming call
     const result = await puter.ai.chat(normalizedMessages, chatOptions);
-
     const latency = Date.now() - startTime;
 
-    // Build an OpenAI-compatible response object
-    // puter returns: { message: { content, role }, ... } or similar
-    const messageContent =
-        typeof result === 'string'
-            ? result
-            : result?.message?.content ?? result?.choices?.[0]?.message?.content ?? '';
+    console.log(`[${ts}] [Puter] Raw result type=${typeof result} isAsyncIterable=${result && typeof result[Symbol.asyncIterator] === 'function'} keys=${result && typeof result === 'object' ? Object.keys(result).join(',') : 'n/a'}`);
 
-    const usage = result?.usage ?? {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-    };
+    const messageContent = await extractContent(result);
+
+    console.log(`[${ts}] [Puter] Content extracted, length=${messageContent.length} latency=${latency}ms`);
+
+    // Try to get usage from result
+    const usage = (result && typeof result === 'object' && !result[Symbol.asyncIterator])
+        ? (result?.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 })
+        : { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
     return {
         id: `puter-${Date.now()}`,
@@ -98,17 +160,17 @@ export async function* callPuterAIStream(
     messages: OpenAIMessage[],
     options: PuterChatOptions = {}
 ): AsyncGenerator<string> {
+    const ts = new Date().toISOString();
     const puter = init(authToken);
 
-    const normalizedMessages = messages.map((m) => ({
-        role: m.role === 'tool' ? 'user' : m.role,
-        content: m.content ?? '',
-    }));
+    const normalizedMessages = normalizeMessages(messages);
 
     const chatOptions: Record<string, any> = { stream: true };
     if (options.model) chatOptions.model = options.model;
     if (options.max_tokens) chatOptions.max_tokens = options.max_tokens;
     if (options.temperature !== undefined) chatOptions.temperature = options.temperature;
+
+    console.log(`[${ts}] [Puter] Stream call model=${options.model ?? 'default'}`);
 
     const stream = await puter.ai.chat(normalizedMessages, chatOptions);
 
@@ -116,14 +178,36 @@ export async function* callPuterAIStream(
     const createdAt = Math.floor(Date.now() / 1000);
     const model = options.model ?? 'puter-default';
 
+    // Handle if puter returns a non-iterable (e.g. a complete string for some models)
+    if (typeof stream === 'string') {
+        const sseChunk = {
+            id: completionId, object: 'chat.completion.chunk', created: createdAt, model,
+            choices: [{ index: 0, delta: { role: 'assistant', content: stream }, finish_reason: 'stop' }],
+        };
+        yield `data: ${JSON.stringify(sseChunk)}\n\n`;
+        yield 'data: [DONE]\n\n';
+        return;
+    }
+
+    if (!stream || typeof stream[Symbol.asyncIterator] !== 'function') {
+        // Fallback: treat as complete response
+        const content = await extractContent(stream);
+        const sseChunk = {
+            id: completionId, object: 'chat.completion.chunk', created: createdAt, model,
+            choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: 'stop' }],
+        };
+        yield `data: ${JSON.stringify(sseChunk)}\n\n`;
+        yield 'data: [DONE]\n\n';
+        return;
+    }
+
     for await (const chunk of stream) {
-        // puter stream chunks may be ChatResponseChunk or plain objects
         const deltaContent =
             typeof chunk === 'string'
                 ? chunk
                 : chunk?.text ?? chunk?.delta?.content ?? chunk?.choices?.[0]?.delta?.content ?? '';
 
-        if (deltaContent === '' && !chunk?.done) continue;
+        const isDone = chunk?.done === true || chunk?.finish_reason === 'stop';
 
         const sseChunk = {
             id: completionId,
@@ -134,20 +218,22 @@ export async function* callPuterAIStream(
                 {
                     index: 0,
                     delta: { role: 'assistant', content: deltaContent },
-                    finish_reason: chunk?.done ? 'stop' : null,
+                    finish_reason: isDone ? 'stop' : null,
                 },
             ],
         };
 
         yield `data: ${JSON.stringify(sseChunk)}\n\n`;
+
+        if (isDone) break;
     }
 
     yield 'data: [DONE]\n\n';
 }
 
 /**
- * List of popular Puter-supported models returned to the frontend.
- * Puter supports 500+ models; we expose a curated subset.
+ * Curated list of popular Puter-supported models shown in the frontend.
+ * Puter supports 500+ models; we expose a useful subset.
  */
 export const PUTER_MODELS = [
     { id: 'gpt-4o' },

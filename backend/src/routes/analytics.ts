@@ -9,8 +9,16 @@ analytics.use('*', authMiddleware);
 analytics.get('/:projectId', async (c) => {
     const { projectId } = c.req.param();
 
-    // Fetch the last 100 logs for the project
-    const { data: logs, error: logsError } = await supabase
+    // 1. Fetch only fields needed for aggregation across ALL logs for this project
+    const { data: allLogs, error: aggError } = await supabase
+        .from('request_logs')
+        .select('status_code, total_tokens, latency_ms, provider, model')
+        .eq('project_id', projectId);
+
+    if (aggError) return c.json({ error: aggError.message }, 500);
+
+    // 2. Fetch the most recent 100 logs for the table visualization
+    const { data: recentLogs, error: logsError } = await supabase
         .from('request_logs')
         .select(`
             *,
@@ -22,7 +30,7 @@ analytics.get('/:projectId', async (c) => {
 
     if (logsError) return c.json({ error: logsError.message }, 500);
 
-    // Aggregate basic stats
+    // Aggregate basic stats using ALL logs
     let totalRequests = 0;
     let successfulRequests = 0;
     let totalTokens = 0;
@@ -31,7 +39,7 @@ analytics.get('/:projectId', async (c) => {
     const providerUsage: Record<string, number> = {};
     const modelUsage: Record<string, number> = {};
 
-    logs.forEach(log => {
+    allLogs.forEach(log => {
         totalRequests++;
         if (log.status_code >= 200 && log.status_code < 300) {
             successfulRequests++;
@@ -62,7 +70,7 @@ analytics.get('/:projectId', async (c) => {
         },
         providerUsage,
         modelUsage,
-        recentLogs: logs
+        recentLogs
     });
 });
 

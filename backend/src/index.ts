@@ -15,6 +15,7 @@ import upstreamKeysRoute from './routes/upstreamKeys';
 import gatewayKeysRoute from './routes/gatewayKeys';
 import v1Route from './routes/v1';
 import analyticsRoute from './routes/analytics';
+import batchRoute from './routes/batch';
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ app.route('/api/projects', projectsRoute);
 app.route('/api/providers', upstreamKeysRoute);
 app.route('/api/gateway-keys', gatewayKeysRoute);
 app.route('/api/analytics', analyticsRoute);
+app.route('/api/batch', batchRoute);
 app.route('/v1', v1Route);
 
 app.get('/', (c) => {

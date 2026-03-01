@@ -4,6 +4,9 @@ import { supabase } from '../db';
 import { gatewayAuth } from '../middleware/gatewayAuth';
 import { providerStates, updateProviderCalls, markProviderError, checkAndRecoverProvider } from '../utils/limitTracker';
 import { callPuterAI, callPuterAIStream } from '../utils/puterClient';
+import { buildCacheKey, getCached, setCached } from '../utils/semanticCache';
+import { isProviderSlow, recordLatency, markProviderSlow, LATENCY_ABORT_TIMEOUT_MS } from '../utils/latencyGuard';
+import { classifyRequest, filterCandidatesByTier, estimateTokenCount } from '../utils/smartRouter';
 
 type Variables = {
     gatewayKey: any;
@@ -45,13 +48,54 @@ v1.post('/chat/completions', async (c) => {
             return c.json({ error: { message: `Model ${requestedModel} is not available for this API key.`, type: "invalid_request_error" } }, 403);
         }
 
-        // Filter out keys marked as error or rate_limited from our tracker
+        // Filter out keys marked as error, rate_limited, or currently slow from our tracker
         const healthyAllowed = allowed.filter((m: any) => {
-            return checkAndRecoverProvider(m.upstream_key_id) === 'healthy';
+            return checkAndRecoverProvider(m.upstream_key_id) === 'healthy'
+                && !isProviderSlow(m.upstream_key_id);
         });
 
-        // Fallback to all mappings if everything is unhealthy
+        // Fallback to all mappings if everything is unhealthy/slow
         let candidates = healthyAllowed.length > 0 ? healthyAllowed : allowed;
+
+        // --- SOAT: Semantic Cache Check ---
+        // Only cache non-streaming requests (streaming responses can't be replayed)
+        const cacheKey = !body.stream ? buildCacheKey(requestedModel, body.messages) : null;
+        if (cacheKey) {
+            const cached = getCached(cacheKey);
+            if (cached) {
+                const ts = new Date().toISOString();
+                console.log(`[${ts}] [SemanticCache] HIT for model=${requestedModel} key=${cacheKey.substring(0, 12)}…`);
+                c.header('X-Cache', 'HIT');
+                return c.json(cached, 200);
+            }
+        }
+
+        // --- SOAT: Atlas Smart Router — 3-Tier Classification ---
+        // Bulk-fetch provider names for all candidate upstream_key_ids (single query, no loop)
+        const candidateUpstreamIds = candidates.map((m: any) => m.upstream_key_id);
+        const { data: providerMeta } = await supabase
+            .from('upstream_keys')
+            .select('id, provider')
+            .in('id', candidateUpstreamIds);
+
+        const providerMap: Record<string, string> = {};
+        (providerMeta || []).forEach((row: any) => { providerMap[row.id] = row.provider; });
+
+        // Enrich candidates with provider name for tier filtering
+        const enrichedCandidates = candidates.map((m: any) => ({
+            ...m,
+            provider: providerMap[m.upstream_key_id] || 'unknown',
+        }));
+
+        const routingTier = classifyRequest({
+            messages: body.messages || [],
+            tools: body.tools || [],
+        });
+        const estimatedTok = estimateTokenCount(body.messages || []);
+        candidates = filterCandidatesByTier(routingTier, enrichedCandidates);
+
+        const tsRouter = new Date().toISOString();
+        console.log(`[${tsRouter}] [SmartRouter] tier=${routingTier} estimatedTokens=${estimatedTok} candidatesAfterFilter=${candidates.length}/${enrichedCandidates.length}`);
 
         if (candidates.length === 0) {
             return c.json({ error: { message: `Model ${requestedModel} is not available.`, type: "invalid_request_error" } }, 403);
@@ -115,6 +159,8 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'groq') baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
             else if (upstream.provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
             else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+            // Kie: OpenAI-compatible, base URL is https://api.kie.ai/api/v1/chat/completions
+            else if (upstream.provider === 'kie') baseUrl = 'https://api.kie.ai/api/v1/chat/completions';
             else if (upstream.provider === 'puter') {
                 // Puter uses a JS SDK, not a REST endpoint — handle separately
                 try {
@@ -236,17 +282,30 @@ v1.post('/chat/completions', async (c) => {
             }
 
             try {
-                // Forward the exact body to the upstream
-                const response = await fetch(baseUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${upstream.api_key}`,
-                        // If OpenRouter, add required headers (can be configurable later)
-                        ...(upstream.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'OpenClaw Gateway' } : {})
-                    },
-                    body: JSON.stringify(forwardBody)
-                });
+                // --- SOAT: Latency Guard — abort if upstream takes too long ---
+                const abortController = new AbortController();
+                const abortTimer = setTimeout(() => {
+                    abortController.abort();
+                }, LATENCY_ABORT_TIMEOUT_MS);
+
+                const fetchStartMs = Date.now();
+                let response: Response;
+                try {
+                    // Forward the exact body to the upstream
+                    response = await fetch(baseUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${upstream.api_key}`,
+                            // If OpenRouter, add required headers (can be configurable later)
+                            ...(upstream.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'OpenClaw Gateway' } : {})
+                        },
+                        body: JSON.stringify(forwardBody),
+                        signal: abortController.signal,
+                    });
+                } finally {
+                    clearTimeout(abortTimer);
+                }
 
                 if (!response.ok) {
                     const errData = await response.json().catch(() => ({}));
@@ -344,11 +403,21 @@ v1.post('/chat/completions', async (c) => {
                 finalTokens = data.usage?.total_tokens || 0;
                 updateProviderCalls(upstream.id, finalTokens);
 
+                // Record latency for this upstream key (latency guard tracking)
+                recordLatency(upstream.id, Date.now() - fetchStartMs);
+
                 // Inject metadata for debugging and verifying rotation
                 data._openclaw_metadata = {
                     provider: upstream.provider,
                     upstream_key_id: upstream.id
                 };
+
+                // --- SOAT: Store in semantic cache (non-streaming only) ---
+                if (cacheKey) {
+                    setCached(cacheKey, data);
+                    const ts = new Date().toISOString();
+                    console.log(`[${ts}] [SemanticCache] MISS → stored key=${cacheKey.substring(0, 12)}… model=${requestedModel}`);
+                }
 
                 finalResponse = data;
                 break; // success, break the loop
@@ -357,9 +426,15 @@ v1.post('/chat/completions', async (c) => {
                 finalStatus = 500;
                 finalErrorMsg = fetchErr.message;
                 const timestamp = new Date().toISOString();
-                console.error(`[${timestamp}] [Fallback] Fetch error: ${fetchErr.message}`);
-                markProviderError(upstream.id, 'error', fetchErr.message);
-                continue; // connection error, try next
+                // Distinguish AbortError (timeout) from other network errors
+                if ((fetchErr as Error).name === 'AbortError') {
+                    console.warn(`[${timestamp}] [LatencyGuard] Upstream ${upstream.provider} timed out after ${LATENCY_ABORT_TIMEOUT_MS}ms — marking slow, trying next.`);
+                    markProviderSlow(upstream.id);
+                } else {
+                    console.error(`[${timestamp}] [Fallback] Fetch error: ${fetchErr.message}`);
+                    markProviderError(upstream.id, 'error', fetchErr.message);
+                }
+                continue; // connection/timeout error, try next
             }
         } // end fallback loop
 
@@ -383,6 +458,8 @@ v1.post('/chat/completions', async (c) => {
         });
 
         if (finalResponse) {
+            c.header('X-Cache', 'MISS');
+            c.header('X-Router-Tier', routingTier);
             return c.json(finalResponse, finalStatus as any);
         } else {
             const errRes = finalErrorData && finalErrorData.error ? finalErrorData : { error: { message: finalErrorMsg || "All upstream candidates failed", type: "api_error" } };

@@ -11,7 +11,7 @@
  *   LATENCY_SLOW_THRESHOLD — consecutive slow responses before marking slow (default: 2)
  */
 
-const TIMEOUT_MS = parseInt(process.env.LATENCY_TIMEOUT_MS || '5000');
+const TIMEOUT_MS = parseInt(process.env.LATENCY_TIMEOUT_MS || '15000');
 const SLOW_WINDOW_MS = parseInt(process.env.LATENCY_SLOW_WINDOW_MS || '60000');
 const SLOW_THRESHOLD = parseInt(process.env.LATENCY_SLOW_THRESHOLD || '2');
 

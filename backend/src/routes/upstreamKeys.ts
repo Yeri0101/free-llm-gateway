@@ -108,38 +108,17 @@ upstreamKeys.get('/:id/models', async (c) => {
         }
         else if (keyData.provider === 'kie') {
             // Kie doesn't expose a /models endpoint — return a curated list of supported models
+            // NOTE: Kie AI only supports Gemini models despite their website SEO placeholders.
             return c.json({
                 models: [
-                    // GPT-5.2 Models (New)
-                    { id: 'gpt-5.2' }, // Thinking
-                    { id: 'gpt-5.2-pro' }, // Pro
-                    { id: 'gpt-5.2-chat-latest' }, // Instant
-                    // Gemini Models
-                    { id: 'gemini-3-flash' }, // New Gemini 3
+                    // Supported Gemini Models natively by Kie API integration
+                    { id: 'gemini-3-flash' }, // Kie's internal routing for new flash
                     { id: 'gemini-2.5-flash' },
                     { id: 'gemini-2.5-pro' },
                     { id: 'gemini-2.0-flash' },
                     { id: 'gemini-2.0-pro-exp' },
                     { id: 'gemini-1.5-pro' },
                     { id: 'gemini-1.5-flash' },
-                    // Anthropic Claude Models
-                    { id: 'claude-3-7-sonnet-20250219' },
-                    { id: 'claude-3-5-sonnet-20241022' },
-                    { id: 'claude-3-5-haiku-20241022' },
-                    { id: 'claude-3-opus-20240229' },
-                    // OpenAI Models
-                    { id: 'gpt-4o' },
-                    { id: 'gpt-4o-mini' },
-                    { id: 'o1' },
-                    { id: 'o1-mini' },
-                    { id: 'o3-mini' },
-                    // DeepSeek Models
-                    { id: 'deepseek-chat' }, // v3
-                    { id: 'deepseek-reasoner' }, // r1
-                    // Meta Llama & Other Open Source
-                    { id: 'llama-3.3-70b-versatile' },
-                    { id: 'llama-3.1-8b-instant' },
-                    { id: 'grok-2-1212' }
                 ]
             });
         }

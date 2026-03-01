@@ -106,6 +106,43 @@ upstreamKeys.get('/:id/models', async (c) => {
             // Puter doesn't have a /models endpoint — return our curated list
             return c.json({ models: PUTER_MODELS });
         }
+        else if (keyData.provider === 'kie') {
+            // Kie doesn't expose a /models endpoint — return a curated list of supported models
+            return c.json({
+                models: [
+                    // GPT-5.2 Models (New)
+                    { id: 'gpt-5.2' }, // Thinking
+                    { id: 'gpt-5.2-pro' }, // Pro
+                    { id: 'gpt-5.2-chat-latest' }, // Instant
+                    // Gemini Models
+                    { id: 'gemini-3-flash' }, // New Gemini 3
+                    { id: 'gemini-2.5-flash' },
+                    { id: 'gemini-2.5-pro' },
+                    { id: 'gemini-2.0-flash' },
+                    { id: 'gemini-2.0-pro-exp' },
+                    { id: 'gemini-1.5-pro' },
+                    { id: 'gemini-1.5-flash' },
+                    // Anthropic Claude Models
+                    { id: 'claude-3-7-sonnet-20250219' },
+                    { id: 'claude-3-5-sonnet-20241022' },
+                    { id: 'claude-3-5-haiku-20241022' },
+                    { id: 'claude-3-opus-20240229' },
+                    // OpenAI Models
+                    { id: 'gpt-4o' },
+                    { id: 'gpt-4o-mini' },
+                    { id: 'o1' },
+                    { id: 'o1-mini' },
+                    { id: 'o3-mini' },
+                    // DeepSeek Models
+                    { id: 'deepseek-chat' }, // v3
+                    { id: 'deepseek-reasoner' }, // r1
+                    // Meta Llama & Other Open Source
+                    { id: 'llama-3.3-70b-versatile' },
+                    { id: 'llama-3.1-8b-instant' },
+                    { id: 'grok-2-1212' }
+                ]
+            });
+        }
         else return c.json({ models: [] }); // default fallback
 
         const response = await fetch(url, {

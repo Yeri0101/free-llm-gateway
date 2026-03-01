@@ -334,6 +334,26 @@ v1.post('/chat/completions', async (c) => {
                     }
                 }
 
+                // --- Intercept Fake 200 OK Errors ---
+                // Kie.ai specifically returns HTTP 200 OK even when it fails with code 500 or 422
+                // We must catch these to trigger the SOAT fallback loop correctly.
+                const contentType = response.headers.get('content-type') || '';
+                if (upstream.provider === 'kie' && contentType.includes('application/json')) {
+                    const clonedResponse = response.clone();
+                    const jsonBody = await clonedResponse.json().catch(() => ({}));
+                    if (jsonBody.code === 500 || jsonBody.code === 422 || jsonBody.error) {
+                        const errMsg = jsonBody.msg || jsonBody.error?.message || 'Fake 200 Server Error';
+                        markProviderError(upstream.id, 'error', errMsg);
+
+                        finalStatus = 500;
+                        finalErrorMsg = errMsg;
+                        finalErrorData = jsonBody;
+                        const timestamp = new Date().toISOString();
+                        console.error(`[${timestamp}] [Fallback] Intercepted Kie fake 200 error: ${errMsg}`);
+                        continue; // try next candidate in fallback queue
+                    }
+                }
+
                 // Handle SSE (Server-Sent Events) Streaming
                 // If the client requested stream: true, we must stream the upstream response
                 // immediately to avoid buffer-induced latency (Time-Between-Tokens delay).

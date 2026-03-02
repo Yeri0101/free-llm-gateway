@@ -164,6 +164,7 @@ v1.post('/chat/completions', async (c) => {
             if (upstream.provider === 'openai') baseUrl = 'https://api.openai.com/v1/chat/completions';
             else if (upstream.provider === 'groq') baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
             else if (upstream.provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+            else if (upstream.provider === 'cerebras') baseUrl = 'https://api.cerebras.ai/v1/chat/completions';
             else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
             // Kie: OpenAI-compatible, but the model name is embedded in the URL path
             // e.g. gemini-2.5-flash → https://api.kie.ai/gemini-2.5-flash/v1/chat/completions

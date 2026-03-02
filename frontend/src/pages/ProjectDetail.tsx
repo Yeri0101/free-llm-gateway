@@ -392,6 +392,7 @@ export default function ProjectDetail() {
                                     <option value="anthropic">Anthropic</option>
                                     <option value="minimax">MiniMax</option>
                                     <option value="kie">Kie (Gemini vía Kie)</option>
+                                    <option value="cerebras">Cerebras</option>
                                     <option value="brave">Brave Search</option>
                                     <option value="puter">Puter (500+ modelos gratis)</option>
                                 </select>

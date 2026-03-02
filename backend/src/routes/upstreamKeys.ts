@@ -88,6 +88,7 @@ upstreamKeys.get('/:id/models', async (c) => {
         if (keyData.provider === 'openai') url = 'https://api.openai.com/v1/models';
         else if (keyData.provider === 'groq') url = 'https://api.groq.com/openai/v1/models';
         else if (keyData.provider === 'openrouter') url = 'https://openrouter.ai/api/v1/models';
+        else if (keyData.provider === 'cerebras') url = 'https://api.cerebras.ai/v1/models';
         else if (keyData.provider === 'google') {
             const googleRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyData.api_key}`);
             if (!googleRes.ok) {

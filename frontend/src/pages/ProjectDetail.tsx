@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchApi } from '../api';
-import { KeyRound, Server, ChevronLeft, Trash2, Plus, RefreshCw, CheckCircle2, Activity, Pause, Play } from 'lucide-react';
+import { KeyRound, Server, ChevronLeft, Trash2, Plus, RefreshCw, Activity, Pause, Play } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 type UpstreamKey = { id: string; provider: string; created_at: string; key_preview?: string };
@@ -46,6 +46,9 @@ export default function ProjectDetail() {
     const [_errorRate, setErrorRate] = useState<number>(0);
     const [_totalTokens, setTotalTokens] = useState<number>(0);
     const [recentRequests, setRecentRequests] = useState<RequestLog[]>([]);
+
+    const [gatewayKeyBulkModels, setGatewayKeyBulkModels] = useState<Record<string, string[]>>({});
+    const [expandedAddModels, setExpandedAddModels] = useState<Record<string, boolean>>({});
 
     const loadData = async () => {
         try {
@@ -160,6 +163,13 @@ export default function ProjectDetail() {
         } catch (err) { alert('Failed to reset all providers'); }
     };
 
+    const handlePauseAllProjectProviders = async () => {
+        try {
+            await fetchApi(`/projects/${id}/pause-all`, { method: 'POST' });
+            loadData();
+        } catch (err) { alert('Failed to pause project providers'); }
+    };
+
     const handleResetProvider = async (provId: string) => {
         try {
             await fetchApi(`/providers/${provId}/reset`, { method: 'POST' });
@@ -202,30 +212,38 @@ export default function ProjectDetail() {
         } catch (err) { alert('Failed to delete'); }
     };
 
-    const toggleModelSelection = (upstream_key_id: string, model_name: string) => {
-        setSelectedModels(prev => {
-            const exists = prev.find(m => m.upstream_key_id === upstream_key_id && m.model_name === model_name);
-            if (exists) {
-                return prev.filter(m => !(m.upstream_key_id === upstream_key_id && m.model_name === model_name));
-            }
-            return [...prev, { upstream_key_id, model_name }];
-        });
-    };
+    const handleAddModelsToGateway = async (gwId: string) => {
+        const modelNames = gatewayKeyBulkModels[gwId] || [];
+        if (modelNames.length === 0) return;
 
-    const selectModelForAll = (model_name: string) => {
-        if (!model_name) return;
-        setSelectedModels(prev => {
-            // Remove all selections for this model_name across all keys, then add one per key that has it
-            const withoutThisModel = prev.filter(m => m.model_name !== model_name);
-            const newSelections: { upstream_key_id: string; model_name: string }[] = [];
+        let newSelections: { upstream_key_id: string; model_name: string }[] = [];
+        modelNames.forEach(model_name => {
             availableModels.forEach(am => {
                 if (am.models.some(m => m.id === model_name)) {
                     newSelections.push({ upstream_key_id: am.upstream_key_id, model_name });
                 }
             });
-            return [...withoutThisModel, ...newSelections];
         });
+
+        try {
+            await fetchApi(`/gateway-keys/${gwId}/models`, {
+                method: 'POST',
+                body: JSON.stringify({ models: newSelections }),
+            });
+            setGatewayKeyBulkModels(prev => ({ ...prev, [gwId]: [] })); // reset
+            loadData();
+        } catch (err) { alert('Failed to add models'); }
     };
+
+    const handleDeleteModelFromGateway = async (gwId: string, modelName: string) => {
+        if (!confirm(`Remove ${modelName}?`)) return;
+        try {
+            await fetchApi(`/gateway-keys/${gwId}/models/${encodeURIComponent(modelName)}`, { method: 'DELETE' });
+            loadData();
+        } catch (err) { alert('Failed to delete'); }
+    };
+
+
 
     const handleTestKey = async (gatewayKey: GatewayKey) => {
         const prompt = testPrompts[gatewayKey.id];
@@ -399,6 +417,9 @@ export default function ProjectDetail() {
                             <div className="flex justify-between items-center mb-4">
                                 <h3 style={{ margin: 0 }}>{t('project.configured_providers')}</h3>
                                 <div className="flex gap-2">
+                                    <button onClick={handlePauseAllProjectProviders} className="btn" style={{ padding: '0.4rem 0.75rem', borderRadius: '4px', background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }} title="Pause all project keys">
+                                        <Pause size={14} /> Pause All
+                                    </button>
                                     <button onClick={handleResetAllProviders} className="btn" style={{ padding: '0.4rem 0.75rem', borderRadius: '4px', background: 'var(--success)', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }} title="Reset All to Healthy">
                                         <RefreshCw size={14} /> Restart All
                                     </button>
@@ -506,71 +527,44 @@ export default function ProjectDetail() {
                             <div style={{ marginBottom: '2rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem' }}>{t('project.select_models')}</label>
 
-                                {/* ── Global quick-apply ── */}
-                                {availableModels.length > 0 && (() => {
+                                {availableModels.length > 0 ? (() => {
                                     const allModelIds = Array.from(
                                         new Set(availableModels.flatMap(am => am.models.map(m => m.id)))
                                     ).sort();
+
+                                    const uniqueSelectedModelNames = Array.from(
+                                        new Set(selectedModels.map(sm => sm.model_name))
+                                    );
+
                                     return (
-                                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Mantén presionado Ctrl (o Cmd) para seleccionar múltiples modelos.</p>
                                             <select
-                                                defaultValue=""
-                                                onChange={e => { selectModelForAll(e.target.value); e.target.value = ''; }}
-                                                style={{ flex: 1, padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid var(--accent-primary)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                                                multiple
+                                                value={uniqueSelectedModelNames}
+                                                onChange={e => {
+                                                    const selectedValues = Array.from(e.target.selectedOptions, option => option.value);
+                                                    const newSelections: { upstream_key_id: string; model_name: string }[] = [];
+                                                    selectedValues.forEach(model_name => {
+                                                        availableModels.forEach(am => {
+                                                            if (am.models.some(m => m.id === model_name)) {
+                                                                newSelections.push({ upstream_key_id: am.upstream_key_id, model_name });
+                                                            }
+                                                        });
+                                                    });
+                                                    setSelectedModels(newSelections);
+                                                }}
+                                                style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.85rem', minHeight: '180px' }}
                                             >
-                                                <option value="">⚡ Aplicar modelo a TODAS las llaves…</option>
                                                 {allModelIds.map(id => (
                                                     <option key={id} value={id}>{id}</option>
                                                 ))}
                                             </select>
                                         </div>
                                     );
-                                })()}
-
-                                <div style={{ maxHeight: '250px', overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem' }}>
-                                    {availableModels.length === 0 && <p className="text-secondary" style={{ fontSize: '0.9rem' }}>{t('project.no_models')}</p>}
-                                    {availableModels.map(am => (
-                                        <div key={am.upstream_key_id} style={{ marginBottom: '1rem' }}>
-                                            <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                                                {am.provider} <span style={{ textTransform: 'none', opacity: 0.6, fontSize: '0.75rem' }}>(Key: {am.upstream_key_id.substring(0, 6)}...)</span>
-                                            </h4>
-                                            {am.models.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--danger)' }}>Failed mapping or no models</p>}
-                                            {am.models.map(m => {
-                                                const isSelected = selectedModels.some(sel => sel.upstream_key_id === am.upstream_key_id && sel.model_name === m.id);
-                                                return (
-                                                    <div
-                                                        key={m.id}
-                                                        style={{
-                                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                                            padding: '0.4rem 0.5rem', borderRadius: '4px',
-                                                            background: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                                                            border: `1px solid ${isSelected ? 'var(--accent-primary)' : 'transparent'}`,
-                                                            marginBottom: '0.25rem'
-                                                        }}
-                                                    >
-                                                        {/* Individual toggle */}
-                                                        <div
-                                                            onClick={() => toggleModelSelection(am.upstream_key_id, m.id)}
-                                                            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, cursor: 'pointer' }}
-                                                        >
-                                                            {isSelected ? <CheckCircle2 size={16} color="var(--accent-primary)" /> : <div style={{ width: 16, height: 16, border: '1px solid var(--border-color)', borderRadius: '50%' }}></div>}
-                                                            <span style={{ fontSize: '0.85rem' }}>{m.id}</span>
-                                                        </div>
-                                                        {/* Bulk-apply button */}
-                                                        <button
-                                                            type="button"
-                                                            title="Aplicar este modelo a todas las llaves"
-                                                            onClick={() => selectModelForAll(m.id)}
-                                                            style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', padding: '0.1rem 0.35rem', color: 'var(--text-muted)', fontSize: '0.7rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
-                                                        >
-                                                            ⚡ all
-                                                        </button>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ))}
-                                </div>
+                                })() : (
+                                    <p className="text-secondary" style={{ fontSize: '0.9rem' }}>{t('project.no_models')}</p>
+                                )}
                             </div>
 
                             <button type="submit" className="btn btn-primary w-full">
@@ -599,11 +593,61 @@ export default function ProjectDetail() {
                                                 <strong>{t('project.allowed_models')} ({g.gateway_key_models?.length}):</strong>
                                                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
                                                     {Array.from(new Set(g.gateway_key_models?.map(m => m.model_name))).map((modelName: any, i: number) => (
-                                                        <span key={i} style={{ background: 'var(--bg-tertiary)', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                                                        <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--bg-tertiary)', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
                                                             {modelName}
+                                                            <button title="Remove model" style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => handleDeleteModelFromGateway(g.id, modelName)}>x</button>
                                                         </span>
                                                     ))}
                                                 </div>
+
+                                                {availableModels.length > 0 && (
+                                                    <div style={{ marginTop: '1rem' }}>
+                                                        {!expandedAddModels[g.id] ? (
+                                                            <button
+                                                                onClick={() => setExpandedAddModels(prev => ({ ...prev, [g.id]: true }))}
+                                                                className="btn btn-secondary btn-sm"
+                                                                style={{ fontSize: '0.85rem' }}
+                                                            >
+                                                                Agregar +
+                                                            </button>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                                                <select
+                                                                    multiple
+                                                                    title="Multiselect options"
+                                                                    value={gatewayKeyBulkModels[g.id] || []}
+                                                                    onChange={e => setGatewayKeyBulkModels(prev => ({ ...prev, [g.id]: Array.from(e.target.selectedOptions, option => option.value) }))}
+                                                                    style={{ flex: 1, padding: '0.45rem', borderRadius: '6px', border: '1px solid var(--accent-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '0.85rem', height: '120px' }}
+                                                                >
+                                                                    {Array.from(new Set(availableModels.flatMap(am => am.models.map(m => m.id)))).sort().filter(id => !g.gateway_key_models?.some(gm => gm.model_name === id)).map(id => (
+                                                                        <option key={id} value={id} style={{ padding: '0.25rem 0.5rem', borderBottom: '1px solid var(--border-color)', margin: '0.1rem 0' }}>{id}</option>
+                                                                    ))}
+                                                                </select>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleAddModelsToGateway(g.id);
+                                                                            setExpandedAddModels(prev => ({ ...prev, [g.id]: false }));
+                                                                            setGatewayKeyBulkModels(prev => ({ ...prev, [g.id]: [] })); // Clear selection visually too
+                                                                        }}
+                                                                        className="btn btn-primary"
+                                                                    >
+                                                                        Aceptar
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setExpandedAddModels(prev => ({ ...prev, [g.id]: false }));
+                                                                            setGatewayKeyBulkModels(prev => ({ ...prev, [g.id]: [] }));
+                                                                        }}
+                                                                        className="btn btn-secondary"
+                                                                    >
+                                                                        Cancelar
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '1rem' }}>

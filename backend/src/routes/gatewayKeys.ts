@@ -61,4 +61,40 @@ gatewayKeys.delete('/:id', async (c) => {
     return c.json({ success: true });
 });
 
+gatewayKeys.post('/:id/models', async (c) => {
+    const { id } = c.req.param();
+    const { models } = await c.req.json();
+
+    if (models && models.length > 0) {
+        const inserts = models.map((m: any) => ({
+            gateway_key_id: id,
+            upstream_key_id: m.upstream_key_id,
+            model_name: m.model_name
+        }));
+
+        const { error: modelError } = await supabase.from('gateway_key_models').insert(inserts);
+        if (modelError) {
+            return c.json({ error: modelError.message }, 500);
+        }
+    }
+    return c.json({ success: true }, 201);
+});
+
+gatewayKeys.delete('/:id/models/:modelName', async (c) => {
+    const { id, modelName } = c.req.param();
+
+    // modelName could have slashes, but hono parameters with slashes need to be encoded. Let's assume it gets passed correctly, or user sends it via query or body. Let's make it a POST endpoint for deletion instead to be safe from model names with slashes OR decode it.
+    // wait, params can be tricky with slashes like meta/llama-3.
+    // Hono handles it if encoded as %2F.
+    const decodedModel = decodeURIComponent(modelName);
+
+    const { error } = await supabase.from('gateway_key_models')
+        .delete()
+        .eq('gateway_key_id', id)
+        .eq('model_name', decodedModel);
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true });
+});
+
 export default gatewayKeys;

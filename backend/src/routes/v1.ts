@@ -54,8 +54,14 @@ v1.post('/chat/completions', async (c) => {
                 && !isProviderSlow(m.upstream_key_id);
         });
 
-        // Fallback to all mappings if everything is unhealthy/slow
-        let candidates = healthyAllowed.length > 0 ? healthyAllowed : allowed;
+        // Fallback to all mappings if everything is unhealthy/slow, EXCEPT explicitly paused ones
+        let candidates = healthyAllowed.length > 0
+            ? healthyAllowed
+            : allowed.filter((m: any) => checkAndRecoverProvider(m.upstream_key_id) !== 'paused');
+
+        if (candidates.length === 0) {
+            return c.json({ error: { message: `Gateway: Model ${requestedModel} is not available. All configured providers are exhausted, broken, or paused.`, type: "server_error" } }, 503);
+        }
 
         // --- SOAT: Semantic Cache Check ---
         // Only cache non-streaming requests (streaming responses can't be replayed)
@@ -245,7 +251,7 @@ v1.post('/chat/completions', async (c) => {
             }
 
             // Google OpenAI-compat normalization for gemini-3+ models:
-            if (upstream.provider === 'google') {
+            if (upstream.provider === 'google' || (upstream.provider === 'kie' && requestedModel.includes('gemini'))) {
                 // 1. Map max_completion_tokens → max_tokens (google compat uses max_tokens)
                 if (forwardBody.max_completion_tokens && !forwardBody.max_tokens) {
                     forwardBody.max_tokens = forwardBody.max_completion_tokens;

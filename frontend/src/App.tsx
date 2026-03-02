@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Layers, Globe, KeyRound } from 'lucide-react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Layers, Globe, KeyRound, Home } from 'lucide-react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
@@ -59,13 +59,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           {t('nav.title')}
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={toggleLanguage} className="btn" style={{ padding: '0.5rem', background: 'transparent', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <Globe size={18} /> {language.toUpperCase()}
+          {localStorage.getItem('token') && (
+            <Link to="/" className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', textDecoration: 'none' }} title="Go to Home">
+              <Home size={16} />
+            </Link>
+          )}
+          <button onClick={toggleLanguage} className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Globe size={16} /> {language.toUpperCase()}
           </button>
           {localStorage.getItem('token') && (
             <>
-              <button onClick={() => setShowPasswordModal(true)} className="btn" style={{ padding: '0.5rem', background: 'transparent', display: 'flex', alignItems: 'center', gap: '0.25rem' }} title={t('nav.change_password')}>
-                <KeyRound size={18} />
+              <button onClick={() => setShowPasswordModal(true)} className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }} title={t('nav.change_password')}>
+                <KeyRound size={16} />
               </button>
               <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>
                 {t('nav.logout')}

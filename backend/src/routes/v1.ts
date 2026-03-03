@@ -246,6 +246,71 @@ v1.post('/chat/completions', async (c) => {
             // This is crucial for fallback: if Google fails, the next provider needs the original fields.
             const forwardBody = JSON.parse(JSON.stringify(body));
 
+            // ─────────────────────────────────────────────────────────────────
+            // SOAT: Silent Prompt Restructuring (Semantic Cache Anchor)
+            //
+            // Goal: Keep the system prompt token-stable at position [0] on every
+            // request so modern LLM APIs (Gemini, Anthropic) can activate their
+            // read-cache automatically → ~50% discount on input tokens.
+            //
+            // Algorithm:
+            //  1. Pull ALL messages whose role === 'system' out of the array.
+            //  2. Merge their content into a single, consolidated system block.
+            //  3. Re-insert that single block at index 0, followed by the
+            //     remaining user/assistant/tool turns in original order.
+            // ─────────────────────────────────────────────────────────────────
+            if (Array.isArray(forwardBody.messages) && forwardBody.messages.length > 0) {
+                const systemMsgs: any[] = [];
+                const otherMsgs: any[] = [];
+
+                for (const msg of forwardBody.messages) {
+                    if (msg.role === 'system') {
+                        systemMsgs.push(msg);
+                    } else {
+                        otherMsgs.push(msg);
+                    }
+                }
+
+                if (systemMsgs.length > 0) {
+                    // Consolidate multiple system blocks into one (separated by double newline)
+                    const mergedContent = systemMsgs
+                        .map((m: any) => {
+                            if (typeof m.content === 'string') return m.content.trim();
+                            if (Array.isArray(m.content)) {
+                                // Handle content-block arrays (OpenAI format)
+                                return m.content
+                                    .map((b: any) => (typeof b === 'string' ? b : b?.text ?? ''))
+                                    .join('')
+                                    .trim();
+                            }
+                            return '';
+                        })
+                        .filter(Boolean)
+                        .join('\n\n');
+
+                    const wasReordered =
+                        systemMsgs.length > 1 || // multiple system blocks → always consolidate
+                        forwardBody.messages[0]?.role !== 'system'; // system not already at index 0
+
+                    forwardBody.messages = [
+                        { role: 'system', content: mergedContent },
+                        ...otherMsgs,
+                    ];
+
+                    if (wasReordered) {
+                        const tsReorder = new Date().toISOString();
+                        console.log(
+                            `[${tsReorder}] [PromptAnchor] Restructured messages: ` +
+                            `${systemMsgs.length} system block(s) → consolidated & anchored at [0]. ` +
+                            `Total messages: ${forwardBody.messages.length} ` +
+                            `(${otherMsgs.length} user/assistant turns)`
+                        );
+                        c.header('X-Prompt-Restructured', 'true');
+                    }
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             // Cap max_tokens to prevent provider rejections and credit pre-reservation issues on OpenRouter
             if (forwardBody.max_tokens && forwardBody.max_tokens > 16000) {
                 forwardBody.max_tokens = 16000;

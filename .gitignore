@@ -3,3 +3,11 @@ node_modules/
 dist/
 build/
 .DS_Store
+
+# Runtime / process logs
+nohup.out
+*.log
+
+# Ad-hoc test scripts
+backend/test-*.js
+test-*.js

@@ -3,6 +3,7 @@ export type ProviderStatus = 'healthy' | 'rate_limited' | 'error' | 'paused';
 interface ProviderState {
     status: ProviderStatus;
     lastError?: string;
+    lastErrorAt?: number;       // epoch ms when last error was recorded
     requestsPerMinute: number;
     requestsPerDay: number;
     tokensPerMinute: number;
@@ -51,20 +52,35 @@ export function checkAndRecoverProvider(upstreamKeyId: string): ProviderStatus {
     const now = new Date();
     const minute = now.getMinutes();
     const day = now.getDate();
+    const nowMs = Date.now();
 
-    if (state.status === 'rate_limited' || state.status === 'error') {
-        // If the minute has changed, it gets a fresh try
-        if (state.resetMinute !== minute) {
+    if (state.status === 'rate_limited') {
+        // Recover after 60s cooldown OR if minute rolled over
+        const cooldownMs = 60_000;
+        const elapsed = nowMs - (state.lastErrorAt ?? 0);
+        if (elapsed >= cooldownMs || state.resetMinute !== minute) {
             state.status = 'healthy';
             state.resetMinute = minute;
             state.requestsPerMinute = 0;
             state.tokensPerMinute = 0;
-        } else if (state.resetDay !== day) {
-            state.status = 'healthy';
-            state.resetDay = day;
-            state.requestsPerDay = 0;
-            state.tokensPerDay = 0;
         }
+    } else if (state.status === 'error') {
+        // Recover after 15s retry window OR if minute rolled over
+        const retryMs = 15_000;
+        const elapsed = nowMs - (state.lastErrorAt ?? 0);
+        if (elapsed >= retryMs || state.resetMinute !== minute) {
+            state.status = 'healthy';
+            state.resetMinute = minute;
+            state.requestsPerMinute = 0;
+            state.tokensPerMinute = 0;
+        }
+    }
+
+    if (state.resetDay !== day) {
+        state.status = state.status === 'paused' ? 'paused' : 'healthy';
+        state.resetDay = day;
+        state.requestsPerDay = 0;
+        state.tokensPerDay = 0;
     }
 
     return state.status;
@@ -127,4 +143,5 @@ export function markProviderError(upstreamKeyId: string, errorType: 'rate_limite
     }
     providerStates[upstreamKeyId].status = errorType;
     providerStates[upstreamKeyId].lastError = message;
+    providerStates[upstreamKeyId].lastErrorAt = Date.now(); // ← timestamp for backoff
 }

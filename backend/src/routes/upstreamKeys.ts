@@ -17,7 +17,7 @@ upstreamKeys.get('/health', async (c) => {
 upstreamKeys.get('/', async (c) => {
     const { data, error } = await supabase
         .from('upstream_keys')
-        .select('id, project_id, provider, created_at, api_key, projects(name)')
+        .select('id, project_id, provider, created_at, api_key, max_context_tokens, projects(name)')
         .order('created_at', { ascending: false });
     if (error) return c.json({ error: error.message }, 500);
 
@@ -50,6 +50,24 @@ upstreamKeys.delete('/:id', async (c) => {
     const { error } = await supabase.from('upstream_keys').delete().eq('id', id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ success: true });
+});
+
+// PATCH /:id/context-limit — set or clear max_context_tokens for this upstream key
+upstreamKeys.patch('/:id/context-limit', async (c) => {
+    const { id } = c.req.param();
+    const body = await c.req.json();
+    // Send null to remove the limit entirely
+    const max_context_tokens = body.max_context_tokens === null
+        ? null
+        : (Number(body.max_context_tokens) || null);
+    const { data, error } = await supabase
+        .from('upstream_keys')
+        .update({ max_context_tokens })
+        .eq('id', id)
+        .select('id, provider, max_context_tokens')
+        .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
 });
 
 upstreamKeys.post('/reset-all', async (c) => {

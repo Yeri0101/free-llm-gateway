@@ -316,6 +316,35 @@ v1.post('/chat/completions', async (c) => {
                 forwardBody.max_tokens = 16000;
             }
 
+            // ─────────────────────────────────────────────────────────────────
+            // SOAT: Context Trim Guard
+            // If the upstream key has a max_context_tokens limit, trim the oldest
+            // non-system messages until the estimated input tokens fit.
+            // Preserves: all system messages + last user message (never trimmed).
+            // ─────────────────────────────────────────────────────────────────
+            if (upstream.max_context_tokens && Array.isArray(forwardBody.messages)) {
+                const limit = upstream.max_context_tokens;
+                let estimated = estimateTokenCount(forwardBody.messages);
+                if (estimated > limit) {
+                    const ts = new Date().toISOString();
+                    console.warn(`[${ts}] [ContextTrim] estimated=${estimated} > limit=${limit} for ${upstream.provider} — trimming oldest messages`);
+                    // Separate: system messages (always kept) + trimmable messages
+                    const systemMsgs = forwardBody.messages.filter((m: any) => m.role === 'system');
+                    const nonSystem = forwardBody.messages.filter((m: any) => m.role !== 'system');
+                    // Always keep at least the last user message
+                    const lastUserIdx = nonSystem.map((m: any) => m.role).lastIndexOf('user');
+                    let trimIdx = 0; // Start trimming from the oldest non-system message
+                    while (estimated > limit && trimIdx < lastUserIdx) {
+                        const removed = nonSystem.splice(0, 1);
+                        estimated -= Math.ceil((JSON.stringify(removed[0]).length) / 4); // rough 1 token ≈ 4 chars
+                        trimIdx++;
+                    }
+                    forwardBody.messages = [...systemMsgs, ...nonSystem];
+                    console.warn(`[${ts}] [ContextTrim] After trim: ~${estimated} tokens, messages=${forwardBody.messages.length}`);
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             // Google OpenAI-compat normalization for gemini-3+ models:
             if (upstream.provider === 'google' || (upstream.provider === 'kie' && requestedModel.includes('gemini'))) {
                 // 1. Map max_completion_tokens → max_tokens (google compat uses max_tokens)
@@ -353,6 +382,59 @@ v1.post('/chat/completions', async (c) => {
                     });
                 }
             }
+
+            // ─────────────────────────────────────────────────────────────────
+            // Cerebras normalization:
+            // Cerebras returns 422 when receiving OpenAI-style tool_calls in the
+            // message history (assistant messages with tool_calls array, or
+            // role:tool result messages). Strip these to plain text equivalents.
+            // ─────────────────────────────────────────────────────────────────
+            if (upstream.provider === 'cerebras') {
+                delete forwardBody.store;
+                delete forwardBody.stream_options;
+                delete forwardBody.parallel_tool_calls;
+
+                if (Array.isArray(forwardBody.messages)) {
+                    forwardBody.messages = forwardBody.messages
+                        .map((msg: any) => {
+                            // Flatten content arrays → plain string
+                            let content = msg.content;
+                            if (Array.isArray(content)) {
+                                content = content
+                                    .map((block: any) => {
+                                        if (typeof block === 'string') return block;
+                                        if (block?.type === 'text') return block.text ?? '';
+                                        return '';
+                                    })
+                                    .join('');
+                            }
+                            // role:tool (tool result) → role:user
+                            if (msg.role === 'tool') {
+                                return { role: 'user', content: `[Tool result]: ${content ?? ''}` };
+                            }
+                            // assistant with tool_calls → strip tool_calls, keep text content
+                            if (msg.role === 'assistant' && msg.tool_calls) {
+                                const toolNames = (msg.tool_calls as any[]).map((tc: any) => tc.function?.name ?? tc.id).join(', ');
+                                const textContent = content || `[Called tools: ${toolNames}]`;
+                                return { role: 'assistant', content: textContent };
+                            }
+                            // Ensure assistant content is never null
+                            if (msg.role === 'assistant' && (content === null || content === undefined)) {
+                                content = '';
+                            }
+                            return { ...msg, content };
+                        })
+                        // Remove any empty assistant messages that would cause 422
+                        .filter((msg: any) => !(msg.role === 'assistant' && msg.content === ''));
+                }
+
+                // Cerebras doesn't support tools/functions in the request
+                delete forwardBody.tools;
+                delete forwardBody.tool_choice;
+                delete forwardBody.functions;
+                delete forwardBody.function_call;
+            }
+            // ─────────────────────────────────────────────────────────────────
 
             try {
                 // --- SOAT: Latency Guard — abort if upstream takes too long ---

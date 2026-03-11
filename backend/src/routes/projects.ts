@@ -39,10 +39,15 @@ projects.delete('/:id', async (c) => {
 
 projects.patch('/:id', async (c) => {
     const { id } = c.req.param();
-    const { name } = await c.req.json();
-    const { data, error } = await supabase.from('projects').update({ name }).eq('id', id).select().single();
+    const body = await c.req.json();
+    const updates: Record<string, any> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.color !== undefined) updates.color = body.color;
+    if (Object.keys(updates).length === 0) return c.json({ error: 'Nothing to update' }, 400);
+    const { data, error } = await supabase.from('projects').update(updates).eq('id', id).select();
     if (error) return c.json({ error: error.message }, 500);
-    return c.json(data);
+    if (!data || data.length === 0) return c.json({ error: 'Project not found' }, 404);
+    return c.json(data[0]);
 });
 
 export default projects;

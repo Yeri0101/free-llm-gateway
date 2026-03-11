@@ -33,9 +33,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     setPasswordLoading(true);
     const username = localStorage.getItem('user') || 'admin';
     try {
-      await fetchApi('/auth/password', {
+      await fetchApi('/auth/credentials', {
         method: 'PUT',
-        body: JSON.stringify({ username, currentPassword, newPassword }),
+        body: JSON.stringify({ currentUsername: username, currentPassword, newPassword }),
       });
       setPasswordSuccess(t('settings.success'));
       setCurrentPassword('');
@@ -51,50 +51,47 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
       <nav className="navbar">
-        {/* Logo */}
-        <Link to="/" className="logo" style={{ textDecoration: 'none' }}>
-          <div className="logo-badge">
-            <Layers size={18} />
+        {/* Brand */}
+        <Link to="/" className="navbar-brand">
+          <div className="navbar-logo">
+            <Layers size={18} style={{ color: 'white' }} />
           </div>
-          <div className="logo-text">
-            <span className="logo-name">OpenClaw</span>
-            <span className="logo-sub">Gateway · SOAT</span>
+          <div>
+            <div className="navbar-title">OpenClaw</div>
+            <div className="navbar-subtitle">Gateway · SOAT</div>
           </div>
         </Link>
 
-        {/* Center status — only when logged in */}
+        {/* Center status chips */}
         {isLoggedIn && (
           <div className="flex items-center gap-3" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-            <div className="status-live">
-              <div className="status-live-dot" />
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.3rem',
+              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
+              borderRadius: 'var(--radius-pill)', padding: '0.25rem 0.65rem',
+              fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', color: '#22c55e',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 5px #22c55e', animation: 'pulseGlow 2s infinite' }} />
               LIVE
             </div>
-            <div className="flex items-center gap-2" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', gap: '1rem' }}>
+            <div className="flex items-center gap-3" style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <Zap size={10} style={{ color: 'var(--brand-cyan)' }} />
-                FALLBACK
+                <Zap size={10} style={{ color: 'var(--brand-orange)' }} /> FALLBACK
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <Shield size={10} style={{ color: 'var(--brand-green)' }} />
-                ANTI-F200
+                <Shield size={10} style={{ color: 'var(--brand-amber)' }} /> ANTI-F200
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <Activity size={10} style={{ color: 'var(--status-warning)' }} />
-                LATENCY
+                <Activity size={10} style={{ color: '#22c55e' }} /> LATENCY
               </span>
             </div>
           </div>
         )}
 
-        {/* Actions */}
-        <div className="navbar-actions">
+        {/* Right actions */}
+        <div className="navbar-right">
           {isLoggedIn && (
-            <Link
-              to="/"
-              className="btn btn-secondary btn-icon"
-              title="Dashboard"
-              style={{ textDecoration: 'none' }}
-            >
+            <Link to="/" className="btn btn-secondary btn-icon" title="Dashboard" style={{ textDecoration: 'none' }}>
               <Home size={16} />
             </Link>
           )}
@@ -102,10 +99,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           <button
             onClick={toggleLanguage}
             className="btn btn-secondary"
-            style={{ padding: '0.45rem 0.75rem', gap: '0.3rem', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+            style={{ padding: '0.4rem 0.7rem', gap: '0.3rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
           >
-            <Globe size={13} />
-            {language.toUpperCase()}
+            <Globe size={13} /> {language.toUpperCase()}
           </button>
 
           {isLoggedIn && (
@@ -115,88 +111,59 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 className="btn btn-secondary btn-icon"
                 title={t('nav.change_password')}
               >
-                <KeyRound size={16} />
+                <KeyRound size={15} />
               </button>
 
               <button
                 onClick={handleLogout}
-                className="btn btn-secondary btn-icon"
+                className="btn btn-danger btn-icon"
                 title={t('nav.logout')}
-                style={{ color: 'var(--status-error)', borderColor: 'rgba(248,113,113,0.2)' }}
               >
-                <LogOut size={16} />
+                <LogOut size={15} />
               </button>
             </>
           )}
         </div>
       </nav>
 
-      <main className="app-container">
+      <main style={{ maxWidth: 1300, margin: '0 auto', padding: '2rem 1.5rem' }}>
         {children}
       </main>
 
       {/* Change Password Modal */}
       {showPasswordModal && (
-        <div className="modal-backdrop" onClick={() => setShowPasswordModal(false)}>
-          <div className="modal-panel" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
+        <div onClick={() => setShowPasswordModal(false)} style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+        }}>
+          <div onClick={e => e.stopPropagation()} className="glass-panel" style={{
+            width: '100%', maxWidth: 400, padding: '2rem', border: '1px solid var(--border-accent)',
+          }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: '1.5rem' }}>
               <div className="flex items-center gap-2">
-                <KeyRound size={18} style={{ color: 'var(--brand-cyan)' }} />
-                <h3 style={{ margin: 0 }}>{t('settings.password_title')}</h3>
+                <KeyRound size={17} style={{ color: 'var(--brand-orange)' }} />
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{t('settings.password_title')}</h3>
               </div>
-              <button
-                onClick={() => setShowPasswordModal(false)}
-                className="btn btn-secondary btn-icon"
-                aria-label="Close"
-              >
-                ✕
-              </button>
+              <button onClick={() => setShowPasswordModal(false)} className="btn btn-secondary btn-icon">✕</button>
             </div>
 
-            {passwordError && (
-              <div className="alert alert-error">{passwordError}</div>
-            )}
-            {passwordSuccess && (
-              <div className="alert alert-success">{passwordSuccess}</div>
-            )}
+            {passwordError && <div className="alert alert-error" style={{ marginBottom: '1rem' }}>{passwordError}</div>}
+            {passwordSuccess && <div className="alert alert-success" style={{ marginBottom: '1rem' }}>{passwordSuccess}</div>}
 
-            <form onSubmit={handleChangePassword}>
-              <div className="form-group">
+            <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>{t('settings.current_password')}</label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                />
+                <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" required />
               </div>
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
                 <label>{t('settings.new_password')}</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                />
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="••••••••" required />
               </div>
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ flex: 1 }}
-                  onClick={() => setShowPasswordModal(false)}
-                >
-                  {t('settings.btn_cancel')}
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={passwordLoading}
-                >
-                  {passwordLoading ? '...' : t('settings.btn_update')}
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowPasswordModal(false)}>{t('settings.btn_cancel')}</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={passwordLoading}>
+                  {passwordLoading ? <><span className="spinner-ring" style={{ width: 14, height: 14, borderWidth: 2 }} /> Updating…</> : t('settings.btn_update')}
                 </button>
               </div>
             </form>

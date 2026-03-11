@@ -14,8 +14,8 @@ export type RoutingTier = 'economy' | 'standard' | 'premium';
 // Default tier → provider mappings (priority order within each tier)
 const DEFAULT_TIER_PROVIDERS: Record<RoutingTier, string[]> = {
     economy: ['groq', 'cerebras'],
-    standard: ['kie', 'openrouter', 'puter'],
-    premium: ['openai', 'google', 'openrouter'],
+    standard: ['kie', 'mistral', 'openrouter', 'puter'],
+    premium: ['openai', 'google', 'mistral', 'openrouter'],
 };
 
 // Allow runtime override via environment variable

@@ -107,6 +107,50 @@ upstreamKeys.get('/:id/models', async (c) => {
         else if (keyData.provider === 'groq') url = 'https://api.groq.com/openai/v1/models';
         else if (keyData.provider === 'openrouter') url = 'https://openrouter.ai/api/v1/models';
         else if (keyData.provider === 'cerebras') url = 'https://api.cerebras.ai/v1/models';
+        else if (keyData.provider === 'mistral') {
+            // Try Mistral API first; fall back to curated list if the key is invalid or rate-limited
+            try {
+                const mistralRes = await fetch('https://api.mistral.ai/v1/models', {
+                    headers: { 'Authorization': `Bearer ${keyData.api_key}` }
+                });
+                if (mistralRes.ok) {
+                    const mistralData = await mistralRes.json();
+                    const models = mistralData.data || [];
+                    if (models.length > 0) {
+                        return c.json({ models });
+                    }
+                }
+                console.warn(`[Models] Mistral API returned ${mistralRes.status} — using curated fallback list`);
+            } catch (fetchErr: any) {
+                console.warn(`[Models] Mistral API fetch failed (${fetchErr.message}) — using curated fallback list`);
+            }
+            // Fallback: curated list of popular Mistral models
+            return c.json({
+                models: [
+                    // Premier models
+                    { id: 'mistral-large-latest' },
+                    { id: 'mistral-large-2411' },
+                    // Medium / general purpose
+                    { id: 'mistral-medium-latest' },
+                    { id: 'mistral-small-latest' },
+                    { id: 'mistral-small-2503' },
+                    // Specialized models
+                    { id: 'codestral-latest' },
+                    { id: 'codestral-2501' },
+                    { id: 'mistral-embed' },
+                    // Open-weight models
+                    { id: 'open-mistral-nemo' },
+                    { id: 'open-mistral-7b' },
+                    { id: 'open-mixtral-8x7b' },
+                    { id: 'open-mixtral-8x22b' },
+                    // Pixtral (multimodal)
+                    { id: 'pixtral-large-latest' },
+                    { id: 'pixtral-12b-2409' },
+                    // Moderation
+                    { id: 'mistral-moderation-latest' },
+                ]
+            });
+        }
         else if (keyData.provider === 'google') {
             const googleRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyData.api_key}`);
             if (!googleRes.ok) {

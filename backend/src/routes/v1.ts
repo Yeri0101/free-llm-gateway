@@ -166,6 +166,8 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
             else if (upstream.provider === 'cerebras') baseUrl = 'https://api.cerebras.ai/v1/chat/completions';
             else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+            // Mistral: fully OpenAI-compatible REST API
+            else if (upstream.provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1/chat/completions';
             // Kie: OpenAI-compatible, but the model name is embedded in the URL path
             // e.g. gemini-2.5-flash → https://api.kie.ai/gemini-2.5-flash/v1/chat/completions
             else if (upstream.provider === 'kie') baseUrl = `https://api.kie.ai/${encodeURIComponent(requestedModel)}/v1/chat/completions`;
@@ -312,8 +314,13 @@ v1.post('/chat/completions', async (c) => {
             // ─────────────────────────────────────────────────────────────────
 
             // Cap max_tokens to prevent provider rejections and credit pre-reservation issues on OpenRouter
-            if (forwardBody.max_tokens && forwardBody.max_tokens > 16000) {
-                forwardBody.max_tokens = 16000;
+            // SOAT Override: Do not limit if it's the premium 'Open router_Prim' project API key
+            const isPremiumProject = typeof gatewayKey?.id === 'string' && gatewayKey.id === 'gk_c00c47e5465653f3e92f57db7b1490f5';
+
+            if (!isPremiumProject) {
+                if (forwardBody.max_tokens && forwardBody.max_tokens > 16000) {
+                    forwardBody.max_tokens = 16000;
+                }
             }
 
             // ─────────────────────────────────────────────────────────────────

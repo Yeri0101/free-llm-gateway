@@ -940,6 +940,13 @@ select {
   border-color: rgba(134, 239, 172, 0.3);
 }
 
+/* NVIDIA NIM — brand green */
+.provider-nvidia {
+  background: #001a0d;
+  color: #76b900;
+  border-color: rgba(118, 185, 0, 0.35);
+}
+
 .provider-default {
   background: var(--bg-elevated);
   color: var(--text-muted);

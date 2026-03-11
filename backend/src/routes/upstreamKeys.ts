@@ -204,6 +204,51 @@ upstreamKeys.get('/:id/models', async (c) => {
                 ]
             });
         }
+        else if (keyData.provider === 'nvidia') {
+            // NVIDIA NIM — try to list models via the OpenAI-compatible /models endpoint
+            try {
+                const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/models', {
+                    headers: { 'Authorization': `Bearer ${keyData.api_key}` }
+                });
+                if (nvidiaRes.ok) {
+                    const nvidiaData = await nvidiaRes.json();
+                    const models = nvidiaData.data || [];
+                    if (models.length > 0) return c.json({ models });
+                }
+                console.warn(`[Models] NVIDIA API returned ${nvidiaRes.status} — using curated fallback list`);
+            } catch (fetchErr: any) {
+                console.warn(`[Models] NVIDIA API fetch failed (${fetchErr.message}) — using curated fallback list`);
+            }
+            // Curated list of popular NVIDIA NIM models
+            return c.json({
+                models: [
+                    // Moonshot / Kimi
+                    { id: 'moonshotai/kimi-k2.5' },
+                    // Meta Llama
+                    { id: 'meta/llama-3.3-70b-instruct' },
+                    { id: 'meta/llama-3.1-405b-instruct' },
+                    { id: 'meta/llama-3.1-70b-instruct' },
+                    { id: 'meta/llama-3.1-8b-instruct' },
+                    // Mistral
+                    { id: 'mistralai/mistral-large-2-instruct' },
+                    { id: 'mistralai/mixtral-8x22b-instruct-v0.1' },
+                    // Google
+                    { id: 'google/gemma-3-27b-it' },
+                    { id: 'google/gemma-3-4b-it' },
+                    // NVIDIA
+                    { id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1' },
+                    { id: 'nvidia/llama-3.1-nemotron-70b-instruct' },
+                    // DeepSeek
+                    { id: 'deepseek-ai/deepseek-r1' },
+                    { id: 'deepseek-ai/deepseek-v3' },
+                    // Qwen
+                    { id: 'qwen/qwen3-235b-a22b' },
+                    { id: 'qwen/qwq-32b' },
+                    // Microsoft
+                    { id: 'microsoft/phi-4-reasoning-plus' },
+                ]
+            });
+        }
         else return c.json({ models: [] }); // default fallback
 
         const response = await fetch(url, {

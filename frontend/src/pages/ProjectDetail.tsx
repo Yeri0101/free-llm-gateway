@@ -35,6 +35,7 @@ const PROVIDER_STYLES: Record<string, { cls: string; abbr: string }> = {
     puter: { cls: 'provider-puter', abbr: 'PT' },
     brave: { cls: 'provider-brave', abbr: 'BV' },
     openrouter: { cls: 'provider-openrouter', abbr: 'OR' },
+    nvidia: { cls: 'provider-nvidia', abbr: 'NV' },
 };
 
 function ProviderChip({ provider }: { provider: string }) {
@@ -394,6 +395,7 @@ export default function ProjectDetail() {
                                     <option value="minimax">MiniMax</option>
                                     <option value="kie">Kie (Gemini vía Kie)</option>
                                     <option value="cerebras">Cerebras</option>
+                                    <option value="nvidia">NVIDIA NIM</option>
                                     <option value="brave">Brave Search</option>
                                     <option value="puter">Puter (500+ modelos gratis)</option>
                                 </select>

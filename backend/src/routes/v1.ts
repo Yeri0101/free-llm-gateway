@@ -170,6 +170,12 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1/chat/completions';
             // NVIDIA NIM: OpenAI-compatible API via integrate.api.nvidia.com
             else if (upstream.provider === 'nvidia') baseUrl = 'https://integrate.api.nvidia.com/v1/chat/completions';
+            // Vercel AI Gateway: OpenAI-compatible proxy — base URL confirmed from Vercel docs
+            else if (upstream.provider === 'vercel') baseUrl = 'https://ai-gateway.vercel.sh/v1/chat/completions';
+            // Chinese providers — all OpenAI-compatible
+            else if (upstream.provider === 'minimax') baseUrl = 'https://api.minimax.chat/v1/chat/completions';
+            else if (upstream.provider === 'moonshot') baseUrl = 'https://api.moonshot.cn/v1/chat/completions';
+            else if (upstream.provider === 'deepseek') baseUrl = 'https://api.deepseek.com/chat/completions';
             // Kie: OpenAI-compatible, but the model name is embedded in the URL path
             // e.g. gemini-2.5-flash → https://api.kie.ai/gemini-2.5-flash/v1/chat/completions
             else if (upstream.provider === 'kie') baseUrl = `https://api.kie.ai/${encodeURIComponent(requestedModel)}/v1/chat/completions`;

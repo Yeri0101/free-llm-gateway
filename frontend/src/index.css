@@ -947,6 +947,27 @@ select {
   border-color: rgba(118, 185, 0, 0.35);
 }
 
+/* Vercel AI Gateway — brand black/white */
+.provider-vercel {
+  background: #111111;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* MoonShot AI (Kimi) — teal/cyan */
+.provider-moonshot {
+  background: #001a1a;
+  color: #00d4d4;
+  border-color: rgba(0, 212, 212, 0.3);
+}
+
+/* DeepSeek — brand ocean blue */
+.provider-deepseek {
+  background: #00101f;
+  color: #4d9fff;
+  border-color: rgba(77, 159, 255, 0.3);
+}
+
 .provider-default {
   background: var(--bg-elevated);
   color: var(--text-muted);

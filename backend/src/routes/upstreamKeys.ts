@@ -249,6 +249,93 @@ upstreamKeys.get('/:id/models', async (c) => {
                 ]
             });
         }
+        else if (keyData.provider === 'vercel') {
+            // Vercel AI Gateway — full curated list including Chinese providers
+            return c.json({
+                models: [
+                    // ── OpenAI ──
+                    { id: 'openai/gpt-4o' },
+                    { id: 'openai/gpt-4o-mini' },
+                    { id: 'openai/o1' },
+                    { id: 'openai/o3-mini' },
+                    // ── Anthropic ──
+                    { id: 'anthropic/claude-3-7-sonnet-20250219' },
+                    { id: 'anthropic/claude-3-5-sonnet-20241022' },
+                    { id: 'anthropic/claude-3-5-haiku-20241022' },
+                    // ── Google ──
+                    { id: 'google/gemini-2.0-flash-001' },
+                    { id: 'google/gemini-1.5-pro-002' },
+                    { id: 'google/gemini-1.5-flash-002' },
+                    // ── xAI Grok ──
+                    { id: 'xai/grok-2-1212' },
+                    { id: 'xai/grok-beta' },
+                    // ── Meta Llama ──
+                    { id: 'meta-llama/llama-3.3-70b-instruct' },
+                    { id: 'meta-llama/llama-3.1-405b-instruct' },
+                    // ── Mistral ──
+                    { id: 'mistral/mistral-large-latest' },
+                    { id: 'mistral/mistral-small-latest' },
+                    // ── DeepSeek ──
+                    { id: 'deepseek/deepseek-chat' },
+                    { id: 'deepseek/deepseek-reasoner' },
+                    // ── MoonShot / Kimi (China) ──
+                    { id: 'moonshotai/kimi-k2.5' },
+                    { id: 'moonshotai/kimi-k1.5' },
+                    // ── MiniMax (China) ──
+                    { id: 'minimax/minimax-m2.5' },
+                    { id: 'minimax/minimax-m2' },
+                    // ── Alibaba / Qwen (China) ──
+                    { id: 'alibaba/qwen-max' },
+                    { id: 'alibaba/qwen-plus' },
+                    { id: 'alibaba/qwen-turbo' },
+                    // ── Groq ──
+                    { id: 'groq/llama-3.3-70b-versatile' },
+                    { id: 'groq/llama-3.1-8b-instant' },
+                    // ── Cerebras ──
+                    { id: 'cerebras/llama3.3-70b' },
+                    { id: 'cerebras/llama3.1-8b' },
+                    // ── Perplexity ──
+                    { id: 'perplexity/sonar-pro' },
+                    { id: 'perplexity/sonar' },
+                    // ── Cohere ──
+                    { id: 'cohere/command-r-plus' },
+                    { id: 'cohere/command-r' },
+                ]
+            });
+        }
+        else if (keyData.provider === 'minimax') {
+            return c.json({
+                models: [
+                    { id: 'MiniMax-Text-01' },
+                    { id: 'abab6.5s-chat' },
+                    { id: 'abab6.5-chat' },
+                    { id: 'abab6.5g-chat' },
+                    { id: 'abab5.5s-chat' },
+                    { id: 'abab5.5-chat' },
+                ]
+            });
+        }
+        else if (keyData.provider === 'moonshot') {
+            // MoonShot AI (Kimi) — OpenAI-compatible
+            return c.json({
+                models: [
+                    { id: 'moonshot-v1-8k' },
+                    { id: 'moonshot-v1-32k' },
+                    { id: 'moonshot-v1-128k' },
+                    { id: 'kimi-latest' },
+                    { id: 'kimi-thinking-preview' },
+                ]
+            });
+        }
+        else if (keyData.provider === 'deepseek') {
+            // DeepSeek direct API — OpenAI-compatible
+            return c.json({
+                models: [
+                    { id: 'deepseek-chat' },       // DeepSeek-V3
+                    { id: 'deepseek-reasoner' },    // DeepSeek-R1
+                ]
+            });
+        }
         else return c.json({ models: [] }); // default fallback
 
         const response = await fetch(url, {

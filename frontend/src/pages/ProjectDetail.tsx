@@ -36,6 +36,9 @@ const PROVIDER_STYLES: Record<string, { cls: string; abbr: string }> = {
     brave: { cls: 'provider-brave', abbr: 'BV' },
     openrouter: { cls: 'provider-openrouter', abbr: 'OR' },
     nvidia: { cls: 'provider-nvidia', abbr: 'NV' },
+    vercel: { cls: 'provider-vercel', abbr: 'VL' },
+    moonshot: { cls: 'provider-moonshot', abbr: 'KM' },
+    deepseek: { cls: 'provider-deepseek', abbr: 'DS' },
 };
 
 function ProviderChip({ provider }: { provider: string }) {
@@ -392,10 +395,10 @@ export default function ProjectDetail() {
                                     <option value="openai">OpenAI</option>
                                     <option value="google">Google</option>
                                     <option value="anthropic">Anthropic</option>
-                                    <option value="minimax">MiniMax</option>
                                     <option value="kie">Kie (Gemini vía Kie)</option>
                                     <option value="cerebras">Cerebras</option>
                                     <option value="nvidia">NVIDIA NIM</option>
+                                    <option value="vercel">Vercel AI Gateway</option>
                                     <option value="brave">Brave Search</option>
                                     <option value="puter">Puter (500+ modelos gratis)</option>
                                 </select>

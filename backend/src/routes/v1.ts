@@ -859,4 +859,115 @@ v1.get('/brave/local/descriptions', async (c) => {
     }
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /v1/embeddings — Proxy to Google Gemini Embeddings API
+// OpenAI-compatible interface → Gemini API format
+// Uses gateway_key_models routing (same as chat/completions)
+// Add "gemini-embedding-2-preview" to your project's model list to enable
+// ─────────────────────────────────────────────────────────────────────────────
+const embeddingCounters: Record<string, number> = {};
+
+v1.post('/embeddings', async (c) => {
+    const gatewayKey = c.get('gatewayKey');
+    const allowedModels = gatewayKey.gateway_key_models || [];
+
+    try {
+        const body = await c.req.json();
+        const requestedModel: string = body.model || 'gemini-embedding-2-preview';
+        const input: string | string[] = body.input;
+
+        if (!input) {
+            return c.json({ error: { message: "Missing 'input' field", type: "invalid_request_error" } }, 400);
+        }
+
+        // Use same model routing as chat/completions
+        const allowed = allowedModels.filter((m: any) => m.model_name === requestedModel);
+
+        if (allowed.length === 0) {
+            return c.json({ error: { message: `Model ${requestedModel} is not available for this API key. Add it to your project's model list.`, type: "invalid_request_error" } }, 403);
+        }
+
+        // Filter healthy upstream keys
+        const healthyAllowed = allowed.filter((m: any) => checkAndRecoverProvider(m.upstream_key_id) !== 'paused');
+        const candidates = healthyAllowed.length > 0 ? healthyAllowed : allowed;
+
+        if (candidates.length === 0) {
+            return c.json({ error: { message: `All upstream keys for ${requestedModel} are paused.`, type: "server_error" } }, 503);
+        }
+
+        // Round-robin rotation across upstream keys
+        const counterKey = `embed:${gatewayKey.id}:${requestedModel}`;
+        if (embeddingCounters[counterKey] === undefined) embeddingCounters[counterKey] = 0;
+        const selectedMapping = candidates[embeddingCounters[counterKey]++ % candidates.length];
+
+        // Fetch upstream key details
+        const { data: upstream, error } = await supabase
+            .from('upstream_keys')
+            .select('*')
+            .eq('id', selectedMapping.upstream_key_id)
+            .single();
+
+        if (error || !upstream) {
+            return c.json({ error: { message: "Upstream provider not found", type: "server_error" } }, 503);
+        }
+
+        // Normalize input to array
+        const inputs: string[] = Array.isArray(input) ? input : [input];
+
+        // Call Gemini batchEmbedContents API
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:batchEmbedContents?key=${upstream.api_key}`;
+        const geminiBody = {
+            requests: inputs.map((text: string) => ({
+                model: `models/${requestedModel}`,
+                content: { parts: [{ text }] }
+            }))
+        };
+
+        const startTime = Date.now();
+        const response = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(geminiBody)
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            const errMsg = errData.error?.message || response.statusText;
+            const isRateLimit = response.status === 429;
+            markProviderError(upstream.id, isRateLimit ? 'rate_limited' : 'error', errMsg);
+            const ts = new Date().toISOString();
+            console.error(`[${ts}] [Embeddings] ${upstream.provider} error ${response.status}: ${errMsg}`);
+            return c.json({ error: { message: errMsg, type: "api_error" } }, response.status as any);
+        }
+
+        const geminiData: any = await response.json();
+        updateProviderCalls(upstream.id, inputs.length * 10);
+
+        const latencyMs = Date.now() - startTime;
+        const ts = new Date().toISOString();
+        console.log(`[${ts}] [Embeddings] model=${requestedModel} inputs=${inputs.length} latency=${latencyMs}ms upstream=${upstream.id.substring(0, 8)}...`);
+
+        // Convert Gemini → OpenAI format
+        const embeddings = (geminiData.embeddings || []).map((emb: any, index: number) => ({
+            object: 'embedding',
+            index,
+            embedding: emb.values
+        }));
+
+        return c.json({
+            object: 'list',
+            data: embeddings,
+            model: requestedModel,
+            usage: {
+                prompt_tokens: inputs.reduce((acc: number, t: string) => acc + Math.ceil(t.length / 4), 0),
+                total_tokens: inputs.reduce((acc: number, t: string) => acc + Math.ceil(t.length / 4), 0)
+            }
+        });
+
+    } catch (err: any) {
+        return c.json({ error: { message: err.message, type: "internal_server_error" } }, 500);
+    }
+});
+
 export default v1;

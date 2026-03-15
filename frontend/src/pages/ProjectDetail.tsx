@@ -114,6 +114,9 @@ export default function ProjectDetail() {
     const [gatewayKeyBulkModels, setGatewayKeyBulkModels] = useState<Record<string, string[]>>({});
     const [expandedAddModels, setExpandedAddModels] = useState<Record<string, boolean>>({});
     const [ctxLimitEdit, setCtxLimitEdit] = useState<Record<string, string | null>>({});
+    const [gatewaySearch, setGatewaySearch] = useState('');
+    const [createModelSearch, setCreateModelSearch] = useState('');
+    const [addModelSearch, setAddModelSearch] = useState<Record<string, string>>({});
 
     /* ─── Data loading ─── */
     const loadData = async () => {
@@ -579,6 +582,13 @@ export default function ProjectDetail() {
                                     return (
                                         <div>
                                             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Ctrl/Cmd para selección múltiple</p>
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar modelos..."
+                                                value={createModelSearch}
+                                                onChange={e => setCreateModelSearch(e.target.value)}
+                                                style={{ width: '100%', marginBottom: '0.5rem', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '0.8rem' }}
+                                            />
                                             <select
                                                 multiple
                                                 value={uniqueSelected}
@@ -592,7 +602,7 @@ export default function ProjectDetail() {
                                                 }}
                                                 style={{ width: '100%', minHeight: 160, padding: '0.4rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
                                             >
-                                                {allModelIds.map(mid => <option key={mid} value={mid}>{mid}</option>)}
+                                                {allModelIds.filter(mid => mid.toLowerCase().includes(createModelSearch.toLowerCase())).map(mid => <option key={mid} value={mid}>{mid}</option>)}
                                             </select>
                                         </div>
                                     );
@@ -608,8 +618,17 @@ export default function ProjectDetail() {
                     {/* Gateway Keys List */}
                     <div>
                         <div className="glass-panel">
-                            <div className="section-label" style={{ marginBottom: '1.25rem' }}>
-                                <Zap size={11} /> {t('project.active_gateways')} ({gateways.length})
+                            <div className="flex justify-between items-center" style={{ marginBottom: '1.25rem' }}>
+                                <div className="section-label" style={{ marginBottom: 0 }}>
+                                    <Zap size={11} /> {t('project.active_gateways')} ({gateways.length})
+                                </div>
+                                <input
+                                    type="text"
+                                    placeholder="Buscar claves gateway..."
+                                    value={gatewaySearch}
+                                    onChange={e => setGatewaySearch(e.target.value)}
+                                    style={{ width: '200px', padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '0.8rem' }}
+                                />
                             </div>
 
                             {gateways.length === 0 ? (
@@ -620,7 +639,7 @@ export default function ProjectDetail() {
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                                    {gateways.map((g, index) => (
+                                    {gateways.filter(g => g.key_name.toLowerCase().includes(gatewaySearch.toLowerCase())).map((g, index) => (
                                         <div key={g.id} style={{
                                             border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)',
                                             padding: '1.25rem', background: 'var(--bg-secondary)', position: 'relative', overflow: 'hidden',
@@ -673,19 +692,29 @@ export default function ProjectDetail() {
                                                                 <Plus size={12} /> Add Models
                                                             </button>
                                                         ) : (
-                                                            <div className="flex gap-2" style={{ alignItems: 'flex-start' }}>
-                                                                <select multiple
-                                                                    value={gatewayKeyBulkModels[g.id] || []}
-                                                                    onChange={e => setGatewayKeyBulkModels(prev => ({ ...prev, [g.id]: Array.from(e.target.selectedOptions, o => o.value) }))}
-                                                                    style={{ flex: 1, height: 110, padding: '0.4rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--brand-orange)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
-                                                                >
-                                                                    {Array.from(new Set(availableModels.flatMap(am => am.models.map(m => m.id)))).sort()
-                                                                        .filter(mid => !g.gateway_key_models?.some(gm => gm.model_name === mid))
-                                                                        .map(mid => <option key={mid} value={mid}>{mid}</option>)}
-                                                                </select>
-                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                                    <button onClick={() => { handleAddModelsToGateway(g.id); setExpandedAddModels(prev => ({ ...prev, [g.id]: false })); }} className="btn btn-primary btn-sm">Add</button>
-                                                                    <button onClick={() => setExpandedAddModels(prev => ({ ...prev, [g.id]: false }))} className="btn btn-secondary btn-sm">Cancel</button>
+                                                            <div className="flex gap-2" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Buscar modelo para agregar..."
+                                                                    value={addModelSearch[g.id] || ''}
+                                                                    onChange={e => setAddModelSearch(prev => ({ ...prev, [g.id]: e.target.value }))}
+                                                                    style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '0.8rem' }}
+                                                                />
+                                                                <div className="flex gap-2" style={{ width: '100%', alignItems: 'flex-start' }}>
+                                                                    <select multiple
+                                                                        value={gatewayKeyBulkModels[g.id] || []}
+                                                                        onChange={e => setGatewayKeyBulkModels(prev => ({ ...prev, [g.id]: Array.from(e.target.selectedOptions, o => o.value) }))}
+                                                                        style={{ flex: 1, height: 110, padding: '0.4rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--brand-orange)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
+                                                                    >
+                                                                        {Array.from(new Set(availableModels.flatMap(am => am.models.map(m => m.id)))).sort()
+                                                                            .filter(mid => !g.gateway_key_models?.some(gm => gm.model_name === mid))
+                                                                            .filter(mid => mid.toLowerCase().includes((addModelSearch[g.id] || '').toLowerCase()))
+                                                                            .map(mid => <option key={mid} value={mid}>{mid}</option>)}
+                                                                    </select>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                                        <button onClick={() => { handleAddModelsToGateway(g.id); setExpandedAddModels(prev => ({ ...prev, [g.id]: false })); }} className="btn btn-primary btn-sm">Add</button>
+                                                                        <button onClick={() => setExpandedAddModels(prev => ({ ...prev, [g.id]: false }))} className="btn btn-secondary btn-sm">Cancel</button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -873,7 +902,7 @@ export default function ProjectDetail() {
                                     ) : recentRequests.map((req: any) => (
                                         <tr key={req.id}>
                                             <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                                {new Date(req.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                {new Date(req.created_at).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                                             </td>
                                             <td>{req.provider ? <ProviderChip provider={req.provider} /> : '—'}</td>
                                             <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req.model}</td>

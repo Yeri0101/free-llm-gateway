@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { fetchApi } from '../api';
-import { FolderOpen, Plus, Trash2, Edit2, X, Settings, LogOut, Zap, Palette } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, Edit2, Zap, Palette } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 type Project = {
@@ -30,9 +30,6 @@ export default function Dashboard() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
     const [colorPickerId, setColorPickerId] = useState<string | null>(null);
-    const [showSettings, setShowSettings] = useState(false);
-    const [credsForm, setCredsForm] = useState({ currentUsername: '', currentPassword: '', newUsername: '', newPassword: '' });
-    const navigate = useNavigate();
 
     const loadProjects = async () => {
         try {
@@ -102,21 +99,6 @@ export default function Dashboard() {
         } catch { console.error('Failed to change color'); }
     };
 
-    const handleUpdateCredentials = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            await fetchApi('/auth/credentials', {
-                method: 'PUT',
-                body: JSON.stringify(credsForm),
-            });
-            alert('Credentials updated. Please log in again.');
-            localStorage.removeItem('token');
-            navigate('/login');
-        } catch (err: any) {
-            alert(err.message || 'Failed to update credentials.');
-        }
-    };
-
     if (loading) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem' }}>
@@ -148,67 +130,8 @@ export default function Dashboard() {
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>{t('dashboard.subtitle')}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <button id="dashboard-settings-btn" onClick={() => setShowSettings(true)}
-                        className="btn btn-secondary btn-icon" title="Settings">
-                        <Settings size={16} />
-                    </button>
-                    <button id="dashboard-logout-btn"
-                        onClick={() => { localStorage.removeItem('token'); navigate('/login'); }}
-                        className="btn btn-danger btn-icon" title="Logout">
-                        <LogOut size={15} />
-                    </button>
-                </div>
+
             </div>
-
-            {/* Settings Modal */}
-            {showSettings && (
-                <div onClick={() => setShowSettings(false)} style={{
-                    position: 'fixed', inset: 0, zIndex: 200,
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
-                    animation: 'fadeIn 0.2s ease-out',
-                }}>
-                    <div onClick={e => e.stopPropagation()} className="glass-panel" style={{
-                        width: '100%', maxWidth: 420, padding: '2rem', border: '1px solid var(--border-accent)',
-                    }}>
-                        <div className="flex items-center justify-between" style={{ marginBottom: '1.5rem' }}>
-                            <div className="flex items-center gap-2">
-                                <Settings size={17} style={{ color: 'var(--brand-orange)' }} />
-                                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Update Credentials</h3>
-                            </div>
-                            <button onClick={() => setShowSettings(false)} className="btn btn-secondary btn-icon"><X size={15} /></button>
-                        </div>
-
-                        <form onSubmit={handleUpdateCredentials} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label>Current Username</label>
-                                <input type="text" value={credsForm.currentUsername}
-                                    onChange={e => setCredsForm({ ...credsForm, currentUsername: e.target.value })} required />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label>Current Password</label>
-                                <input type="password" value={credsForm.currentPassword}
-                                    onChange={e => setCredsForm({ ...credsForm, currentPassword: e.target.value })} required />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label>New Username <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                                <input type="text" value={credsForm.newUsername}
-                                    onChange={e => setCredsForm({ ...credsForm, newUsername: e.target.value })} />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                                <label>New Password <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                                <input type="password" value={credsForm.newPassword}
-                                    onChange={e => setCredsForm({ ...credsForm, newPassword: e.target.value })} />
-                            </div>
-                            <div className="flex gap-3">
-                                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowSettings(false)}>Cancel</button>
-                                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Update & Relogin</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
 
             {/* Create Project */}
             <div className="glass-panel" style={{ marginBottom: '2rem' }}>

@@ -151,7 +151,7 @@ upstreamKeys.get('/:id/models', async (c) => {
                 ]
             });
         }
-        else if (keyData.provider === 'google') {
+        else if (keyData.provider === 'google' || keyData.provider === 'vertex' || keyData.provider === 'vertexai') {
             const googleRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyData.api_key}`);
             if (!googleRes.ok) {
                 const err = await googleRes.json().catch(() => ({}));
@@ -353,6 +353,89 @@ upstreamKeys.get('/:id/models', async (c) => {
     } catch (err: any) {
         console.error('Error fetching models for key', id, 'Provider:', keyData.provider, err);
         return c.json({ error: err.message }, 500);
+    }
+});
+
+upstreamKeys.post('/:id/test', async (c) => {
+    const { id } = c.req.param();
+    const body = await c.req.json().catch(() => ({}));
+    const prompt = body.prompt || 'Ping';
+    const preferredModel: string | undefined = body.model;
+
+    try {
+        const { data: keyData, error } = await supabase
+            .from('upstream_keys')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error || !keyData) return c.json({ error: 'Key not found' }, 404);
+
+        let url = '';
+        let headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        let model = '';
+        let payload: any = {};
+
+        if (['openai', 'openrouter', 'groq', 'cerebras', 'mistral', 'nvidia', 'vercel', 'minimax', 'moonshot', 'deepseek', 'kie'].includes(keyData.provider)) {
+            if (keyData.provider === 'openai') { url = 'https://api.openai.com/v1/chat/completions'; model = 'gpt-3.5-turbo'; }
+            else if (keyData.provider === 'groq') { url = 'https://api.groq.com/openai/v1/chat/completions'; model = 'gemma2-9b-it'; }
+            else if (keyData.provider === 'openrouter') { url = 'https://openrouter.ai/api/v1/chat/completions'; model = 'google/gemini-2.5-flash-preview'; }
+            else if (keyData.provider === 'cerebras') { url = 'https://api.cerebras.ai/v1/chat/completions'; model = 'llama3.1-8b'; }
+            else if (keyData.provider === 'mistral') { url = 'https://api.mistral.ai/v1/chat/completions'; model = 'mistral-small-latest'; }
+            else if (keyData.provider === 'nvidia') { url = 'https://integrate.api.nvidia.com/v1/chat/completions'; model = 'meta/llama3-8b-instruct'; }
+            else if (keyData.provider === 'minimax') { url = 'https://api.minimax.chat/v1/chat/completions'; model = 'minimax-text-01'; }
+            else if (keyData.provider === 'moonshot') { url = 'https://api.moonshot.cn/v1/chat/completions'; model = 'moonshot-v1-8k'; }
+            else if (keyData.provider === 'deepseek') { url = 'https://api.deepseek.com/chat/completions'; model = 'deepseek-chat'; }
+            else if (keyData.provider === 'vercel') { url = 'https://ai-gateway.vercel.sh/v1/chat/completions'; model = 'gpt-3.5-turbo'; }
+            else if (keyData.provider === 'kie') { url = 'https://api.kie.ai/gemini-1.5-flash/v1/chat/completions'; model = 'gemini-1.5-flash'; }
+
+            headers['Authorization'] = `Bearer ${keyData.api_key}`;
+            if (preferredModel) model = preferredModel;
+            payload = {
+                model,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 20
+            };
+        } else if (keyData.provider === 'google' || keyData.provider === 'vertex') {
+            url = `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`;
+            headers['Authorization'] = `Bearer ${keyData.api_key}`;
+            model = preferredModel || 'gemini-2.0-flash';
+            payload = {
+                model,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 20
+            };
+        } else if (keyData.provider === 'anthropic') {
+            url = 'https://api.anthropic.com/v1/messages';
+            model = 'claude-3-haiku-20240307';
+            headers['x-api-key'] = keyData.api_key;
+            headers['anthropic-version'] = '2023-06-01';
+            payload = {
+                model,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 20
+            };
+        } else if (keyData.provider === 'puter') {
+            return c.json({ status: 200, data: { status: 'Puter SDK Health OK (Simulated)' } });
+        } else {
+            return c.json({ error: 'Unsupported provider for direct test' }, 400);
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+            return c.json({ status: response.status, error: data || response.statusText }, response.status as any);
+        }
+
+        return c.json({ status: response.status, data });
+    } catch (err: any) {
+        return c.json({ status: 500, error: err.message }, 500);
     }
 });
 

@@ -26,6 +26,7 @@ interface RequestLog {
 /* ─── Provider color / abbrev config ─── */
 const PROVIDER_STYLES: Record<string, { cls: string; abbr: string }> = {
     google: { cls: 'provider-google', abbr: 'GG' },
+    vertex: { cls: 'provider-google', abbr: 'VX' },
     cerebras: { cls: 'provider-cerebras', abbr: 'CB' },
     kie: { cls: 'provider-kie', abbr: 'KI' },
     openai: { cls: 'provider-openai', abbr: 'OA' },
@@ -117,6 +118,8 @@ export default function ProjectDetail() {
     const [gatewaySearch, setGatewaySearch] = useState('');
     const [createModelSearch, setCreateModelSearch] = useState('');
     const [addModelSearch, setAddModelSearch] = useState<Record<string, string>>({});
+    const [isTestingAll, setIsTestingAll] = useState(false);
+    const [testProviderResults, setTestProviderResults] = useState<Record<string, { success: boolean; msg: string; testing: boolean }>>({});
 
     /* ─── Data loading ─── */
     const loadData = async () => {
@@ -214,6 +217,66 @@ export default function ProjectDetail() {
     const handleResetAllProviders = async () => {
         try { await fetchApi('/providers/reset-all', { method: 'POST' }); loadData(); }
         catch { alert('Failed to reset all providers'); }
+    };
+
+    const handlePingAllProviders = async () => {
+        setIsTestingAll(true);
+        const words = ["sol", "luna", "viento", "fuego", "nube", "rio", "bosque", "cielo", "nieve", "roca", "mar", "estrella"];
+
+        // Collect all allowed models across every gateway key, annotated with their upstream_key_id
+        const allAllowedModels: { model_name: string; upstream_key_id?: string }[] = gateways.flatMap(
+            g => g.gateway_key_models || []
+        );
+
+        const promises = providers.map(async (p, idx) => {
+            setTestProviderResults(prev => ({ ...prev, [p.id]: { success: false, msg: '', testing: true } }));
+            const randomWord = words[Math.floor(Math.random() * words.length)] + idx * 7;
+
+            // Try to find a model that belongs directly to this upstream provider
+            let matchingModel = allAllowedModels.find(m => m.upstream_key_id === p.id)?.model_name;
+            
+            // If none directly assigned, find a model assigned to ANY other upstream key of the same provider type
+            if (!matchingModel) {
+                const siblingKeyIds = providers.filter(prov => prov.provider === p.provider).map(prov => prov.id);
+                matchingModel = allAllowedModels.find(m => m.upstream_key_id && siblingKeyIds.includes(m.upstream_key_id))?.model_name;
+            }
+
+            try {
+                const res = await fetchApi(`/providers/${p.id}/test`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: `Responde unicamente con la palabra: ${randomWord}`,
+                        ...(matchingModel ? { model: matchingModel } : {})
+                    })
+                });
+                if (res?.status === 200 || res?.status === '200') {
+                    setTestProviderResults(prev => ({ 
+                        ...prev, 
+                        [p.id]: { success: true, msg: 'OK (200)', testing: false }
+                    }));
+                } else {
+                    let errMsg = 'Failed';
+                    if (res?.error) {
+                        if (typeof res.error === 'string') errMsg = res.error;
+                        else if (res.error.error && typeof res.error.error === 'string') errMsg = res.error.error;
+                        else if (res.error.error?.message) errMsg = res.error.error.message;
+                        else if (res.error.message) errMsg = res.error.message;
+                        else errMsg = JSON.stringify(res.error);
+                    }
+                    setTestProviderResults(prev => ({ 
+                        ...prev, 
+                        [p.id]: { success: false, msg: errMsg, testing: false }
+                    }));
+                }
+            } catch (err: any) {
+                setTestProviderResults(prev => ({ 
+                    ...prev, 
+                    [p.id]: { success: false, msg: err.message || 'Error', testing: false }
+                }));
+            }
+        });
+        await Promise.all(promises);
+        setIsTestingAll(false);
     };
 
     const handlePauseAllProjectProviders = async () => {
@@ -397,6 +460,7 @@ export default function ProjectDetail() {
                                     <option value="openrouter">OpenRouter</option>
                                     <option value="openai">OpenAI</option>
                                     <option value="google">Google</option>
+                                    <option value="vertex">Vertex AI (via AI Studio)</option>
                                     <option value="anthropic">Anthropic</option>
                                     <option value="kie">Kie (Gemini vía Kie)</option>
                                     <option value="cerebras">Cerebras</option>
@@ -436,6 +500,9 @@ export default function ProjectDetail() {
                                     <button onClick={handleResetAllProviders} className="btn btn-success btn-sm">
                                         <RefreshCw size={13} /> Reset All
                                     </button>
+                                    <button onClick={handlePingAllProviders} className="btn btn-primary btn-sm" disabled={isTestingAll}>
+                                        {isTestingAll ? <span className="spinner-ring" style={{ width: 13, height: 13, borderWidth: 2 }} /> : <Zap size={13} />} Test All
+                                    </button>
                                     <button onClick={loadData} className="btn btn-secondary btn-icon btn-sm" title="Refresh">
                                         <RefreshCw size={14} />
                                     </button>
@@ -472,6 +539,11 @@ export default function ProjectDetail() {
                                                                 <ProviderChip provider={p.provider} />
                                                             </div>
                                                             <div className="provider-id">{p.key_preview || p.id.split('-')[0] + '...'}</div>
+                                                            {testProviderResults[p.id] && (
+                                                                <div style={{ fontSize: '0.65rem', marginTop: '0.2rem', color: testProviderResults[p.id].testing ? 'var(--text-muted)' : (testProviderResults[p.id].success ? 'var(--status-success)' : 'var(--status-error)') }}>
+                                                                    {testProviderResults[p.id].testing ? 'Testing...' : testProviderResults[p.id].msg}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td>
                                                             <StatusBadge status={health.status} />

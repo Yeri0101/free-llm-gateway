@@ -165,7 +165,7 @@ v1.post('/chat/completions', async (c) => {
             else if (upstream.provider === 'groq') baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
             else if (upstream.provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
             else if (upstream.provider === 'cerebras') baseUrl = 'https://api.cerebras.ai/v1/chat/completions';
-            else if (upstream.provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+            else if (upstream.provider === 'google' || upstream.provider === 'vertex') baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
             // Mistral: fully OpenAI-compatible REST API
             else if (upstream.provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1/chat/completions';
             // NVIDIA NIM: OpenAI-compatible API via integrate.api.nvidia.com
@@ -326,7 +326,7 @@ v1.post('/chat/completions', async (c) => {
             const premiumKey = process.env.SOAT_PREMIUM_BYPASS_KEY || '';
             const isPremiumProject = premiumKey.length > 0 && typeof gatewayKey?.id === 'string' && gatewayKey.id === premiumKey;
 
-            if (!isPremiumProject) {
+            if (!isPremiumProject && upstream.provider !== 'google' && upstream.provider !== 'vertex') {
                 if (forwardBody.max_tokens && forwardBody.max_tokens > 16000) {
                     forwardBody.max_tokens = 16000;
                 }
@@ -362,7 +362,7 @@ v1.post('/chat/completions', async (c) => {
             // ─────────────────────────────────────────────────────────────────
 
             // Google OpenAI-compat normalization for gemini-3+ models:
-            if (upstream.provider === 'google' || (upstream.provider === 'kie' && requestedModel.includes('gemini'))) {
+            if (upstream.provider === 'google' || upstream.provider === 'vertex' || (upstream.provider === 'kie' && requestedModel.includes('gemini'))) {
                 // 1. Map max_completion_tokens → max_tokens (google compat uses max_tokens)
                 if (forwardBody.max_completion_tokens && !forwardBody.max_tokens) {
                     forwardBody.max_tokens = forwardBody.max_completion_tokens;

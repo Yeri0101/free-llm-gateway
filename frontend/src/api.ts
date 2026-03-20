@@ -17,7 +17,19 @@ export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
         let errorMsg = response.statusText;
         try {
             const errBody = await response.json();
-            if (errBody.error) errorMsg = errBody.error;
+            if (errBody.error) {
+                if (typeof errBody.error === 'string') {
+                    errorMsg = errBody.error;
+                } else if (errBody.error.message) {
+                    errorMsg = errBody.error.message;
+                } else if (errBody.error.error && typeof errBody.error.error === 'string') {
+                    errorMsg = errBody.error.error;
+                } else if (errBody.error.error?.message) {
+                    errorMsg = errBody.error.error.message;
+                } else {
+                    errorMsg = JSON.stringify(errBody.error);
+                }
+            }
         } catch (e) { }
         throw new Error(errorMsg);
     }

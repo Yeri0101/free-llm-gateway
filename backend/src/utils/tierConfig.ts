@@ -15,7 +15,7 @@ export type RoutingTier = 'economy' | 'standard' | 'premium';
 const DEFAULT_TIER_PROVIDERS: Record<RoutingTier, string[]> = {
     economy: ['groq', 'cerebras'],
     standard: ['kie', 'mistral', 'openrouter', 'puter'],
-    premium: ['openai', 'google', 'nvidia', 'vercel', 'mistral', 'openrouter'],
+    premium: ['openai', 'google', 'vertex', 'nvidia', 'vercel', 'mistral', 'openrouter'],
 };
 
 // Allow runtime override via environment variable

@@ -179,6 +179,7 @@ v1.post('/chat/completions', async (c) => {
             // Kie: OpenAI-compatible, but the model name is embedded in the URL path
             // e.g. gemini-2.5-flash → https://api.kie.ai/gemini-2.5-flash/v1/chat/completions
             else if (upstream.provider === 'kie') baseUrl = `https://api.kie.ai/${encodeURIComponent(requestedModel)}/v1/chat/completions`;
+            else if (upstream.provider === 'zettacore') baseUrl = 'http://localhost:8000/v1/chat/completions';
             else if (upstream.provider === 'puter') {
                 // Puter uses a JS SDK, not a REST endpoint — handle separately
                 try {

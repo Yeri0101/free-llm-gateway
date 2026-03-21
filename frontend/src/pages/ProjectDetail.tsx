@@ -40,6 +40,7 @@ const PROVIDER_STYLES: Record<string, { cls: string; abbr: string }> = {
     vercel: { cls: 'provider-vercel', abbr: 'VL' },
     moonshot: { cls: 'provider-moonshot', abbr: 'KM' },
     deepseek: { cls: 'provider-deepseek', abbr: 'DS' },
+    zettacore: { cls: 'provider-default', abbr: 'ZC' },
 };
 
 function ProviderChip({ provider }: { provider: string }) {
@@ -468,6 +469,7 @@ export default function ProjectDetail() {
                                     <option value="vercel">Vercel AI Gateway</option>
                                     <option value="brave">Brave Search</option>
                                     <option value="puter">Puter (500+ modelos gratis)</option>
+                                    <option value="zettacore">ZettaCore (Chrome Bridge)</option>
                                 </select>
                             </div>
                             <div className="form-group">

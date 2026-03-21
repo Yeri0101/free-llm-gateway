@@ -303,6 +303,17 @@ upstreamKeys.get('/:id/models', async (c) => {
                 ]
             });
         }
+        else if (keyData.provider === 'zettacore') {
+            return c.json({
+                models: [
+                    { id: 'arena-claude-opus-4-6' },
+                    { id: 'arena-gpt-4o' },
+                    { id: 'gemini-web' },
+                    { id: 'chatgpt-web' },
+                    { id: 'qwen-web' }
+                ]
+            });
+        }
         else if (keyData.provider === 'minimax') {
             return c.json({
                 models: [
@@ -376,7 +387,7 @@ upstreamKeys.post('/:id/test', async (c) => {
         let model = '';
         let payload: any = {};
 
-        if (['openai', 'openrouter', 'groq', 'cerebras', 'mistral', 'nvidia', 'vercel', 'minimax', 'moonshot', 'deepseek', 'kie'].includes(keyData.provider)) {
+        if (['openai', 'openrouter', 'groq', 'cerebras', 'mistral', 'nvidia', 'vercel', 'minimax', 'moonshot', 'deepseek', 'kie', 'zettacore'].includes(keyData.provider)) {
             if (keyData.provider === 'openai') { url = 'https://api.openai.com/v1/chat/completions'; model = 'gpt-3.5-turbo'; }
             else if (keyData.provider === 'groq') { url = 'https://api.groq.com/openai/v1/chat/completions'; model = 'gemma2-9b-it'; }
             else if (keyData.provider === 'openrouter') { url = 'https://openrouter.ai/api/v1/chat/completions'; model = 'google/gemini-2.5-flash-preview'; }
@@ -388,6 +399,7 @@ upstreamKeys.post('/:id/test', async (c) => {
             else if (keyData.provider === 'deepseek') { url = 'https://api.deepseek.com/chat/completions'; model = 'deepseek-chat'; }
             else if (keyData.provider === 'vercel') { url = 'https://ai-gateway.vercel.sh/v1/chat/completions'; model = 'gpt-3.5-turbo'; }
             else if (keyData.provider === 'kie') { url = 'https://api.kie.ai/gemini-1.5-flash/v1/chat/completions'; model = 'gemini-1.5-flash'; }
+            else if (keyData.provider === 'zettacore') { url = 'http://localhost:8000/v1/chat/completions'; model = 'arena-claude-opus-4-6'; }
 
             headers['Authorization'] = `Bearer ${keyData.api_key}`;
             if (preferredModel) model = preferredModel;
